@@ -1,0 +1,46 @@
+# --- 模型权重 ---
+weights/
+*.pt
+*.pth
+*.onnx
+*.onnx.data
+*.engine
+# 例外：随仓库发布的关键权重（通过 git add -f 强制纳入）
+# runs/train/pest27_final4/weights/best.pt
+# runs/train/pest27_final4/weights/best.onnx
+
+# --- 数据集（体积过大，不入库）---
+dataset/
+dataset_full/
+dataset_102/
+competition_all_sorted/
+pictures20/
+selected_real_scenes/
+
+# --- 竞赛材料（PPT/规则文档，不公开）---
+睿抗国赛项目—农智云/
+
+# --- 输出结果 ---
+output/
+runs/
+
+# --- Python 缓存与环境 ---
+__pycache__/
+*.pyc
+*.pyo
+.env
+.venv/
+venv/
+env/
+
+# --- IDE 配置 ---
+.vscode/
+.idea/
+
+# --- 日志与临时文件 ---
+*.log
+.DS_Store
+Thumbs.db
+
+# --- Docker (可选) ---
+.dockerignore
