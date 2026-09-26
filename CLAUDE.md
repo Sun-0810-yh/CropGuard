@@ -4,6 +4,7 @@
 - 工作目录: D:\Dev Projects\Pycharm\yolov8
 - GitHub源码(仅代码): D:\Dev Projects\Pycharm\Pest-detection-master
 - GitHub仓库: https://github.com/Stara-AI/Pest-detection
+- 本项目仓库(开源): https://github.com/Sun-0810-yh/CropGuard（公开，含 best.pt/best.onnx，数据集未上传）
 
 ## Python 环境
 - GPU环境: D:\Dev Env\Python\Conda\envs\pest-gpu\python.exe

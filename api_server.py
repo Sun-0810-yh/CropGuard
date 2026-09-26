@@ -78,8 +78,48 @@ spray = SprayController(
     enabled=bool(cfg_spray.get('enabled', True)),
     risk_map=cfg_spray.get('risk_map', {}) or {},
     min_interval=float(cfg_spray.get('min_interval', 3)),
+    transport=cfg_spray.get('transport', 'serial'),
+    http_targets=cfg_spray.get('http_targets', []) or [],
+    http_timeout=float(cfg_spray.get('http_timeout', 1.0) or 1.0),
+    mqtt=cfg_spray.get('mqtt', {}) or {},
 )
+print(f"[INFO] Spray transport={spray.transport} available={spray.available}")
+
+# ==================== 摄像头源解析（多路片区方案 + 单摄回退） ====================
+cfg_cameras = config.get('CONFIG', {}).get('cameras') or []
 camera_num = int(config.get('CONFIG', {}).get('camera_num', 0))
+
+
+def _normalize_source(src):
+    """规范化摄像头 source：纯数字串转 int，其余按路径/RTSP URL 处理。"""
+    if isinstance(src, str):
+        s = src.strip()
+        return int(s) if s.isdigit() else s
+    return src
+
+
+def resolve_camera(cam_id=None):
+    """解析摄像头源，返回 (source, group, label)。
+
+    - 配了 CONFIG.cameras 时：按 id 匹配（如 'A'/'B'）；未命中则取第一路
+    - 未配 cameras 时：回退单摄 camera_num，group/label 为空
+    """
+    if cfg_cameras:
+        chosen = None
+        if cam_id:
+            target = str(cam_id).strip().lower()
+            for c in cfg_cameras:
+                if str(c.get('id', '')).strip().lower() == target:
+                    chosen = c
+                    break
+        if chosen is None:
+            chosen = cfg_cameras[0]
+        return (
+            _normalize_source(chosen.get('source', 0)),
+            str(chosen.get('group', '') or ''),
+            str(chosen.get('name') or chosen.get('id') or ''),
+        )
+    return camera_num, '', ''
 
 # 联动/喷淋历史（Client 页「历史回看」用，内存环形缓存）
 spray_history = []
@@ -141,10 +181,12 @@ def _predict_and_format(img, conf=None):
     }
 
 
-def _linkage(risk_level, detections):
+def _linkage(risk_level, detections, zone_group=None):
     """风险联动：语音播报 + 喷淋执行（均异步、失败静默、不阻塞推理）。
 
-    返回喷淋分组/时长（若触发），用于历史记录。
+    zone_group: 触发该风险的片区对应分组（多路定点监测时由摄像头绑定）；
+                None 时用 risk_map 配置的分组。
+    返回是否已下发喷淋指令，用于历史记录。
     """
     names = [d.get('chinese_name') or d.get('class_name') for d in detections]
     try:
@@ -155,14 +197,18 @@ def _linkage(risk_level, detections):
     mapping = cfg_spray.get('risk_map', {}).get(risk_level, {}) if cfg_spray.get('risk_map') else {}
     group = mapping.get('group')
     duration = mapping.get('duration', 0)
+
+    # 片区定向：摄像头绑定了分组、且映射不是"全体"时，只喷该片区
+    spray_group = zone_group if (zone_group and group and group != 'all') else group
+
     sprayed = False
     if risk_level in ('高风险', '中风险'):
         try:
-            sprayed = spray.spray(risk_level, names)
+            sprayed = spray.spray(risk_level, names, group_override=spray_group)
         except Exception:
             sprayed = False
     if sprayed:
-        _record_history(risk_level, detections, group=group, duration=duration, source='auto')
+        _record_history(risk_level, detections, group=spray_group, duration=duration, source='auto')
     return sprayed
 
 # ==================== FastAPI App ====================
@@ -811,12 +857,20 @@ async def manual_spray(payload: dict):
 
 @app.websocket("/ws/stream")
 async def ws_stream(websocket: WebSocket):
-    """摄像头实时流：采集 → 推理 → 推 JPEG + 结果 + 风险；中/高风险自动联动喷淋 + 语音。"""
+    """摄像头实时流：采集 → 推理 → 推 JPEG + 结果 + 风险；中/高风险自动联动喷淋 + 语音。
+
+    可选 query 参数 cam（片区 id，如 'A'/'B'）：多路定点监测时选择片区摄像头，
+    该片区绑定的分组决定自动喷淋目标（未配 CONFIG.cameras 时忽略，退回单摄）。
+    """
     await websocket.accept()
 
-    cap = cv2.VideoCapture(camera_num)
+    cam_id = websocket.query_params.get('cam') or websocket.query_params.get('zone')
+    source, zone_group, zone_label = resolve_camera(cam_id)
+
+    cap = cv2.VideoCapture(source)
     if not cap.isOpened():
-        await websocket.send_text(json.dumps({"error": "无法打开摄像头"}, ensure_ascii=False))
+        await websocket.send_text(json.dumps(
+            {"error": f"无法打开摄像头 {zone_label or source}"}, ensure_ascii=False))
         await websocket.close()
         return
 
@@ -837,11 +891,13 @@ async def ws_stream(websocket: WebSocket):
             result = _predict_and_format(frame)
             last_push = time.time()
 
-            # 中/高风险联动：喷淋 + 语音（均异步，不阻塞推理）
+            # 中/高风险联动：喷淋 + 语音（均异步，不阻塞推理）；按片区定向
             risk_level = result["risk"]["level"]
             if risk_level in ('高风险', '中风险'):
-                _linkage(risk_level, result["detections"])
+                _linkage(risk_level, result["detections"], zone_group=zone_group)
 
+            if zone_label:
+                result["zone"] = zone_label
             await websocket.send_text(json.dumps(result, ensure_ascii=False))
             await asyncio.sleep(0.001)
     except WebSocketDisconnect:

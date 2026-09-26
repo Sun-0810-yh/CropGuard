@@ -131,6 +131,15 @@ AI:
 CONFIG:
   # 摄像头id,如果发现打开摄像头没有画面，修改下面的数值 0 1 2 3 等
   camera_num: 0
+  # 多路定点监测（国赛"双路片区"方案）：留空 [] 则退回上面的单摄 camera_num
+  # source 支持：本地索引(0/1/2)、视频文件路径、RTSP/HTTP 流地址
+  # group 为该片区对应的喷淋分组（自动模式下按此分组喷淋）
+  # 访问：/stream?cam=A 或 /stream?cam=B 选择片区；默认取第一路
+  cameras: []
+  # 示例（买到摄像头后取消注释，改成实际 RTSP 地址）：
+  # cameras:
+  #   - { id: 'A', name: '片区A', group: 'g1', source: 'rtsp://admin:密码@192.168.4.51:554/Streaming/Channels/101' }
+  #   - { id: 'B', name: '片区B', group: 'g2', source: 'rtsp://admin:密码@192.168.4.52:554/Streaming/Channels/101' }
   #
   chinese_name: {
     "Aphids_Harmful": "蚜虫(害虫)",
@@ -265,6 +274,29 @@ SPRAY:
   serial_port: null
   # 网关串口波特率（需与 feedback/spray_executor/gateway.ino 的 Serial.begin 一致）
   baud: 115200
+  # 指令传输方式（国赛"田间无线"改造）：
+  #   'serial' : Server --USB串口--> 网关ESP32 --ESP-NOW--> 节点（现状，含一根 USB 线）
+  #   'http'   : Server --HTTP--> 目标设备（方案甲：节点直连 WiFi；方案丙：无线网关转发）
+  #   'mqtt'   : Server --MQTT--> 目标设备（方案乙，需 broker）
+  transport: 'serial'
+  # transport='http' 时的目标地址表（group -> 设备地址）
+  #   方案甲（节点直连，故障隔离好）：每个分组各配一个地址
+  #   方案丙（无线网关，节点固件零改动·推荐）：只配一项 group='gateway'，全部指令发网关，由网关 ESP-NOW 转发
+  http_targets: []
+  # 示例：
+  # http_targets:
+  #   - { group: 'g1', url: 'http://192.168.4.61/spray' }
+  #   - { group: 'g2', url: 'http://192.168.4.62/spray' }
+  # 方案丙示例（推荐）：
+  # http_targets:
+  #   - { group: 'gateway', url: 'http://192.168.4.60/spray' }
+  http_timeout: 1.0
+  # transport='mqtt' 时的 broker 配置
+  mqtt:
+    host: ''            # 例：'192.168.4.100'
+    port: 1883
+    topic: 'cropguard/spray'
+    qos: 0
   # 两次自动喷淋最小间隔（秒），避免连续推理反复喷
   min_interval: 3
   # 风险等级 -> 喷淋分组与时长（秒）映射；duration<=0 或 group 为空表示不喷
@@ -277,9 +309,8 @@ SPRAY:
     '低风险': { group: null, duration: 0 }
     '无风险': { group: null, duration: 0 }
   # 喷头节点登记表（烧录时写入节点 NODE_ID/NODE_GROUP；网关可选单播用 MAC）
+  # 国赛 2 片区版：片区A = g1(id=1)、片区B = g2(id=2)，每片区 1 个喷洒节点
+  # 扩展多节点：按同样格式追加 id/group/name/mac 即可（group 相同的节点会一起被喷）
   nodes:
-    - { id: 1, group: 'g1', mac: 'AA:BB:CC:DD:EE:01' }
-    - { id: 2, group: 'g1', mac: 'AA:BB:CC:DD:EE:02' }
-    - { id: 3, group: 'g2', mac: 'AA:BB:CC:DD:EE:03' }
-    - { id: 4, group: 'g2', mac: 'AA:BB:CC:DD:EE:04' }
-    - { id: 5, group: 'g2', mac: 'AA:BB:CC:DD:EE:05' }
+    - { id: 1, group: 'g1', name: '片区A', mac: 'AA:BB:CC:DD:EE:01' }
+    - { id: 2, group: 'g2', name: '片区B', mac: 'AA:BB:CC:DD:EE:02' }
