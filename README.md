@@ -82,7 +82,7 @@ python main.py
 | 类别数 | 27 类农作物害虫 |
 | 输入尺寸 | **imgsz = 640**（部署平台强制要求，480 会失败） |
 | 最佳权重 | `runs/train/pest27_final4/weights/best.pt` |
-| ONNX | `runs/train/pest27_final4/weights/best.onnx`（平台部署用） |
+| ONNX | `睿抗国赛项目—农智云/best.onnx`（平台部署用；2026-10-08 清理时删掉了 `runs/` 下的重复副本，两份 SHA256 相同。若要随开源仓库发布，需对该文件 `git add -f`） |
 
 **27 类名称**（`dataset_full/data.yaml` 中定义，`configs.yaml` 的 `chinese_name` 提供中文映射）：
 
@@ -106,11 +106,12 @@ yolov8/
 │  └─ configs.yaml           # 主配置（模型/设备/UI/AI/反馈）
 ├─ tool/                     # 绘制、结果格式化、导出等工具函数
 ├─ llm/                      # 本地大模型客户端（Ollama）+ 知识库兜底
-├─ feedback/                 # 语音播报 + Arduino 声光反馈
+├─ feedback/                 # 语音播报 + 喷淋控制器（Python 侧）
+├─ ESP32/                    # 喷洒节点 / 声光报警固件（PlatformIO 工程，见 ESP32/README.md）
 ├─ prompts/                  # 大模型提示词模板
 ├─ ultralytics/              # YOLOv8 框架源码（含 SE 注意力）
-├─ icon/ img/ fonts/         # 界面资源（背景图、主图、字体）
-├─ runs/train/pest27_final4/ # 当前最佳模型（best.pt / best.onnx）
+├─ icon/                     # 界面资源（background.jpg / zhutu2.png）
+├─ runs/train/pest27_final4/ # 当前最佳模型（best.pt / last.pt）
 ├─ dataset_full/             # 27 类数据集（当前训练用）
 ├─ dataset_102/              # 102 类数据集（遗留，见第 8 节）
 ├─ competition_all_sorted/   # 竞赛整理数据

@@ -1150,8 +1150,12 @@ if __name__ == "__main__":
 
     # 模型加载
     if not os.path.exists(weights):
-        print(f"警告: 权重文件 {weights} 不存在，将使用默认 yolov8s.pt")
+        print(f"警告: 权重文件 {weights} 不存在")
+        # 兜底权重 yolov8s.pt（COCO 预训练）已在 2026-10-08 清理时删除。
+        # 需要它就从 ultralytics 重新下载放到项目根目录；更推荐直接改
+        # config/configs.yaml 的 MODEL.WEIGHT 指回 runs/train/pest27_final4/weights/best.pt
         weights = 'yolov8s.pt'
+        print(f"      兜底为 {weights}（该文件当前不在项目里，ultralytics 会尝试联网下载）")
     yolo = YOLO(weights)
     # 模型预热
     yolo.predict(np.zeros((300, 300, 3), dtype='uint8'), device=device)

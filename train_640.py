@@ -12,8 +12,13 @@
   - 模糊 → 模拟对焦不准
   - Mosaic → 模拟复杂背景
 """
+import os
 import sys
 from ultralytics import YOLO
+
+# 从头训练的 COCO 预训练起点。该文件已在 2026-10-08 清理时删除：
+# 联网时 ultralytics 会自动下载；离线环境请先手动准备，或直接用 --resume 续训。
+BASE_WEIGHTS = 'yolov8s.pt'
 
 AUGS = dict(
     # 光线/色彩 —— 模拟各种灯光和打印偏色
@@ -43,7 +48,10 @@ if __name__ == '__main__':
                     patience=20, cos_lr=True, close_mosaic=10,
                     project='runs/train', name='pest27_final4', **AUGS)
     else:
-        model = YOLO('yolov8s.pt')
+        if not os.path.exists(BASE_WEIGHTS):
+            print(f'[提示] 找不到 {BASE_WEIGHTS}：将从 COCO 预训练权重开始训练（需联网下载）。')
+            print('       离线环境请改用：python train_640.py --resume')
+        model = YOLO(BASE_WEIGHTS)
         model.train(data='dataset_full/data.yaml', epochs=100,
                     batch=16, imgsz=640, device='cuda:0', workers=2,
                     patience=20, cos_lr=True, close_mosaic=10,
