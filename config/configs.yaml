@@ -263,7 +263,9 @@ CONFIG:
 FEEDBACK:
   # 是否启用反馈（语音播报 + 声光报警）
   enabled: true
-  # Arduino 串口号（Windows 如 'COM3'），无 Arduino 时设为 null，仅用语音播报
+  # 声光报警器串口号（Windows 如 'COM5'）；无硬件时保持 null，仅用语音播报
+  # ESP32 报警板固件: ESP32/src/alarm/main.cpp（烧录 pio run -e alarm -t upload）
+  # 烧完后在 VSCode 的 PlatformIO 侧栏看 Ports，或设备管理器里认 CH340/CP2102 的端口
   serial_port: null
   # 串口波特率
   baud: 9600
@@ -276,24 +278,30 @@ SPRAY:
   enabled: true
   # 网关 USB 串口号（Windows 如 'COM4'）；无网关时设为 null，仅推理不做喷淋
   serial_port: null
-  # 网关串口波特率（需与 feedback/spray_executor/gateway.ino 的 Serial.begin 一致）
+  # 网关串口波特率（需与 ESP32/src/espnow_gateway/main.cpp 的 Serial.begin 一致）
   baud: 115200
   # 指令传输方式（国赛"田间无线"改造）：
   #   'serial' : Server --USB串口--> 网关ESP32 --ESP-NOW--> 节点（现状，含一根 USB 线）
   #   'http'   : Server --HTTP--> 目标设备（方案甲：节点直连 WiFi；方案丙：无线网关转发）
   #   'mqtt'   : Server --MQTT--> 目标设备（方案乙，需 broker）
-  transport: 'serial'
+  # 本案（国赛方案.md §5）：现场用手机热点，信道不可控 -> 走方案甲 'http' 直连节点
+  transport: 'http'
   # transport='http' 时的目标地址表（group -> 设备地址）
   #   方案甲（节点直连，故障隔离好）：每个分组各配一个地址
-  #   方案丙（无线网关，节点固件零改动·推荐）：只配一项 group='gateway'，全部指令发网关，由网关 ESP-NOW 转发
-  http_targets: []
-  # 示例：
+  #   方案丙（无线网关，节点固件零改动）：只配一项 group='gateway'，全部指令发网关，由网关 ESP-NOW 转发
+  # ⚠️ 节点现用 DHCP（`-DUSE_DHCP=1`），IP 由热点/路由器分配，**以节点串口打印的为准**：
+  #      串口会打印  WIFI_OK  IP=x.x.x.x   <<< 把这个 IP 填到下面
+  #   实测（2026-10-08 校园环境）：手机热点处于「共享已连接 WiFi」桥接模式，
+  #      地址由校园网 DHCP(10.141.169.143) 下发，节点拿到 10.141.169.231；
+  #      此时写死 192.168.43.61 会「WIFI_OK 但服务器够不着」。
+  #   若换成普通手机热点（自带网关、网段固定），节点会自动拿到 192.168.43.x，
+  #      也可改回静态：platformio.ini 里把 -DUSE_DHCP=1 改成 0。
+  http_targets:
+    - { group: 'g1', url: 'http://10.141.169.231/spray' }   # 片区A 节点（DHCP，实测值）
+    - { group: 'g2', url: 'http://192.168.43.62/spray' }    # 片区B 节点（尚未烧录/上线，占位）
+  # 方案丙示例（改用 ESP32/src/wifi_gateway 时再换成这一条）：
   # http_targets:
-  #   - { group: 'g1', url: 'http://192.168.4.61/spray' }
-  #   - { group: 'g2', url: 'http://192.168.4.62/spray' }
-  # 方案丙示例（推荐）：
-  # http_targets:
-  #   - { group: 'gateway', url: 'http://192.168.4.60/spray' }
+  #   - { group: 'gateway', url: 'http://192.168.43.60/spray' }
   http_timeout: 1.0
   # transport='mqtt' 时的 broker 配置
   mqtt:
@@ -301,9 +309,10 @@ SPRAY:
     port: 1883
     topic: 'cropguard/spray'
     qos: 0
-  # 两次自动喷淋最小间隔（秒），避免连续推理反复喷
+  # 两次自动喷淋最小间隔（秒），避免连续推理反复喷；雾化片怕连续通电，可酌情调到 5
   min_interval: 3
   # 风险等级 -> 喷淋分组与时长（秒）映射；duration<=0 或 group 为空表示不喷
+  # ⚠️ 负载是 5V 超声雾化片：单次一律 ≤5 秒（固件 -DMAX_SPRAY_SEC=5 会再钳一次）
   # 协议：Server -> 网关串口发 {"group":"all","duration":3}，网关 ESP-NOW 广播，
   #       节点按自身 group 过滤执行（继电器闭合 -> 水泵喷 -> 断开）
   risk_map:

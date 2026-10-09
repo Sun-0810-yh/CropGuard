@@ -1,0 +1,11 @@
+# PlatformIO 构建产物与本地私密配置（相对本目录）
+.pio/
+
+# 手工喂给 PlatformIO 的工具链压缩包（115MB，超过 GitHub 单文件 100MB 限制，
+# 且可由 tools/fetch_toolchain.py 重新下载，不入库）
+tools/*.tar.gz
+tools/*.tar.xz
+tools/*.zip
+
+# 现场 WiFi 凭据（从 include/cg_secrets.local.h.example 复制而来）
+include/cg_secrets.local.h

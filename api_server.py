@@ -38,6 +38,15 @@ except ImportError:
 from tool.parser import get_config
 from tool.tools import format_data, draw_info, assess_risk
 
+# 防治建议：知识库秒出兜底 + 本地大模型（Ollama）增强
+# 与 GUI（main.py 的 LocalAdviceWorker）用同一套 llm/ 与 prompts/ 组件
+from llm import knowledge_base
+try:
+    from llm import local_llm
+except Exception:          # 本地模型不可用时静默降级为知识库
+    local_llm = None
+from prompts.core.prompt_manager import prompt_manager
+
 config = get_config('./config/configs.yaml')
 cfg_model = config.MODEL
 weights_path = cfg_model.WEIGHT
@@ -48,8 +57,11 @@ chinese_name = config.get('CONFIG', {}).get('chinese_name', {})
 
 # 加载模型
 if not os.path.exists(weights_path):
-    print(f"[WARN] Weight file {weights_path} not found, using yolov8s.pt")
+    print(f"[WARN] Weight file {weights_path} not found")
+    # 兜底权重 yolov8s.pt 已在 2026-10-08 清理时删除；
+    # 当前 config/configs.yaml 指向的 best.pt 存在，正常不会走到这里。
     weights_path = 'yolov8s.pt'
+    print(f"[WARN] Falling back to {weights_path} (not present locally; ultralytics will try to download it)")
 
 print(f"[INFO] Loading model: {weights_path}")
 print(f"[INFO] Device: {device}")
@@ -179,6 +191,31 @@ def _predict_and_format(img, conf=None):
         "result_image": result_b64,
         "timestamp": datetime.now().isoformat(),
     }
+
+
+def _kb_advice_from_result(res):
+    """用检测结果拼知识库防治报告（秒回、离线、无网络依赖）。"""
+    pests = [
+        (d.get("class_name") or d.get("chinese_name"), float(d.get("confidence") or 0))
+        for d in (res.get("detections") or [])
+    ]
+    risk = res.get("risk") or {}
+    return knowledge_base.get_advice(pests, risk.get("level", ""), risk.get("detail", ""))
+
+
+def _with_advice(res):
+    """给检测结果挂上知识库版防治建议（失败静默，不影响检测本身）。
+
+    注意：只挂在 /api/detect 与 /api/detect_b64 上，
+    WebSocket 实时流那条路**不能挂**（每帧生成建议会拖垮推理）。
+    """
+    try:
+        res["advice"] = _kb_advice_from_result(res)
+        res["advice_source"] = "knowledge_base"
+    except Exception:
+        res["advice"] = ""
+        res["advice_source"] = "none"
+    return res
 
 
 def _linkage(risk_level, detections, zone_group=None):
@@ -363,7 +400,7 @@ HTML_PAGE = """
 <body>
     <div class="header">
         <h1>🌿 CropGuard - 农作物害虫智能检测系统</h1>
-        <p>基于 YOLOv8 + SE注意力机制 | 102类农业害虫识别 | AI防治建议</p>
+        <p>基于 YOLOv8 + SE注意力机制 | 27类农业害虫识别 | AI防治建议</p>
     </div>
 
     <div class="container">
@@ -374,6 +411,16 @@ HTML_PAGE = """
                 <p>点击或拖拽图片到此处</p>
                 <p style="color:#999;font-size:12px;margin-top:5px;">支持 JPG, PNG, JFIF 格式</p>
                 <input type="file" id="fileInput" accept="image/*" onchange="handleFileSelect(event)">
+            </div>
+            <!-- 手机端"直接拍照"入口：capture=environment 会调起后置摄像头，
+                 注意 <input capture> 不需要 HTTPS，而 getUserMedia 需要 -->
+            <input type="file" id="cameraInput" accept="image/*" capture="environment"
+                   style="display:none" onchange="handleFileSelect(event)">
+            <div style="margin-top:12px;">
+                <button class="btn" id="cameraBtn"
+                        onclick="document.getElementById('cameraInput').click()"
+                        style="background:#2d5a2d;">📷 手机拍照</button>
+                <span style="margin-left:10px;color:#888;font-size:12px;">（手机点这个直接开相机）</span>
             </div>
             <img id="preview" class="preview-img" style="display:none;">
             <div style="margin-top:15px;">
@@ -403,6 +450,14 @@ HTML_PAGE = """
                     <div id="detectionList"></div>
                     <div id="stats" style="margin-top:15px;color:#666;font-size:14px;"></div>
                 </div>
+            </div>
+            <div style="margin-top:18px;">
+                <h3 style="margin-bottom:8px;">🧪 防治建议</h3>
+                <div id="adviceBox"
+                     style="padding:14px 16px;background:#f6faf6;border-left:4px solid #2d5a2d;
+                            border-radius:8px;white-space:pre-wrap;font-size:14px;
+                            line-height:1.75;color:#26402a;">（检测后自动生成）</div>
+                <div id="adviceSource" style="margin-top:6px;color:#888;font-size:12px;"></div>
             </div>
         </div>
 
@@ -511,6 +566,32 @@ HTML_PAGE = """
                     document.getElementById('stats').innerHTML =
                         `检测耗时: ${data.inference_time}s | 检测到 ${data.count} 个目标`;
 
+                    // 防治建议：先用接口返回的知识库版（秒出），再异步换成本地大模型综合方案
+                    const adviceBox = document.getElementById('adviceBox');
+                    const adviceSrc = document.getElementById('adviceSource');
+                    adviceBox.textContent = data.advice || '（无建议）';
+                    adviceSrc.textContent = '来源：知识库（离线兜底）';
+                    if (data.detections.length > 0) {
+                        adviceSrc.textContent = '来源：知识库（离线兜底）· 正在调用本地大模型生成综合方案…';
+                        fetch('/api/advice', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({detections: data.detections, risk: data.risk})
+                        })
+                        .then(r => r.json())
+                        .then(a => {
+                            if (a && a.advice) {
+                                adviceBox.textContent = a.advice;
+                                adviceSrc.textContent = (a.source === 'llm')
+                                    ? '来源：本地大模型（Ollama，离线），可与知识库版对照'
+                                    : '来源：知识库（离线兜底）';
+                            }
+                        })
+                        .catch(() => {
+                            adviceSrc.textContent = '来源：知识库（离线兜底）· 大模型调用失败，已兜底';
+                        });
+                    }
+
                     resultSection.style.display = 'block';
                 } else {
                     alert('检测失败: ' + data.error);
@@ -579,7 +660,7 @@ async def detect(file: UploadFile = File(...), conf: float = Form(None)):
         if img is None:
             raise HTTPException(status_code=400, detail="无法解析图片文件")
 
-        return _predict_and_format(img, conf)
+        return _with_advice(_predict_and_format(img, conf))
 
     except HTTPException:
         raise
@@ -616,7 +697,7 @@ async def detect_base64(payload: dict):
         if img is None:
             raise HTTPException(status_code=400, detail="无法解码Base64图片")
 
-        return _predict_and_format(img, conf)
+        return _with_advice(_predict_and_format(img, conf))
 
     except HTTPException:
         raise
@@ -820,6 +901,50 @@ STREAM_PAGE = """
 </body>
 </html>
 """
+
+
+@app.post("/api/advice")
+def advice(payload: dict):
+    """防治建议：知识库秒回 + 本地大模型综合方案（离线 Ollama，与 GUI 同一套）。
+
+    body: {"detections": [...], "risk": {"level": "...", "detail": "..."}}
+    返回: {"success", "source": "knowledge_base"|"llm", "advice": "文本"}
+
+    故意用普通 def（不是 async def）：FastAPI 会把它丢进线程池，
+    避免本地大模型那几秒阻塞事件循环、把推理接口一起拖慢。
+    """
+    dets = payload.get("detections") or []
+    risk = payload.get("risk") or {}
+    pests = [
+        (d.get("class_name") or d.get("chinese_name"), float(d.get("confidence") or 0))
+        for d in dets
+    ]
+    result = {
+        "success": True,
+        "source": "knowledge_base",
+        "advice": knowledge_base.get_advice(pests, risk.get("level", ""), risk.get("detail", "")),
+    }
+    if local_llm is None or not dets:
+        return result
+    try:
+        names = "、".join(
+            f"{d.get('chinese_name') or d.get('class_name')}"
+            f"(置信度:{float(d.get('confidence') or 0):.2f})"
+            for d in dets
+        )
+        risk_info = f"\n病害风险等级：{risk.get('level', '')}\n风险详情：{risk.get('detail', '')}"
+        user_prompt = (
+            f"检测到的病虫害：{names}{risk_info}\n\n"
+            f"请生成简洁的诊断结论与综合防治要点（300字以内），"
+            f"分点列出农业、物理、生物、化学防治措施。"
+        )
+        text = local_llm.generate(prompt_manager.get_prompt('deepseek'), user_prompt)
+        if text and str(text).strip():
+            result["source"] = "llm"
+            result["advice"] = str(text).strip()
+    except Exception as exc:
+        result["llm_error"] = f"{type(exc).__name__}: {str(exc)[:100]}"
+    return result
 
 
 @app.get("/stream", response_class=HTMLResponse)

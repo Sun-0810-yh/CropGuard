@@ -48,6 +48,7 @@ pyparsing==3.1.4
 python-dateutil==2.9.0.post0
 python-multipart>=0.0.6
 pytz==2025.2
+pyserial==3.5
 PyWavelets==1.4.1
 PyYAML>=6.0.2
 qudida==0.0.4

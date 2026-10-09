@@ -7,7 +7,7 @@
     mqtt   : Server --MQTT--> 目标设备（方案乙/丙，需 broker）
 
 「田间无线」推荐 **方案丙**：transport=http，http_targets 只配一项 ``group='gateway'``，
-全部指令发给无线网关，网关再经 ESP-NOW 广播/单播给节点——**节点固件 spray_node.ino 零改动**。
+全部指令发给无线网关，网关再经 ESP-NOW 广播/单播给节点——**节点固件（ESP32/src/espnow_node）零改动**。
 
 与 feedback.Feedback 同一风格：异步执行、失败静默、不阻塞推理主流程。
 链路不可用（无串口/无目标地址/broker 未连）时静默降级，仅推理不做喷淋。

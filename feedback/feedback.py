@@ -2,9 +2,9 @@
 
 国赛要求「系统必须根据识别结果触发物理动作或信号控制」。本模块提供两级反馈：
 1. 语音播报（pyttsx3，Windows SAPI 离线 TTS，零硬件依赖）
-2. 声光报警（pyserial 串口驱动 Arduino 红/黄/绿 LED + 蜂鸣器）
+2. 声光报警（pyserial 串口驱动三色 LED + 蜂鸣器；固件见 ESP32/src/alarm）
 
-二者可独立工作：无 Arduino 时语音播报仍满足「信号反馈」要求。
+二者可独立工作：没有报警器时，语音播报仍满足「信号反馈」要求。
 """
 import time
 import threading
