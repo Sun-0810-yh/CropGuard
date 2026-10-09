@@ -130,7 +130,11 @@ AI:
 
 CONFIG:
   # 摄像头id,如果发现打开摄像头没有画面，修改下面的数值 0 1 2 3 等
-  camera_num: 0
+  # 2026-10-08 实测（USB Camera, VID_0C45&PID_6360，外接）：
+  #   0 = HP Wide Vision HD Camera（笔记本内置）
+  #   1 = USB Camera（外接）  <<< 当前用的就是这个
+  # 若换机器/换插口导致错位，运行 `python tool/camera_probe.py` 重新确认
+  camera_num: 1
   # 多路定点监测（国赛"双路片区"方案）：留空 [] 则退回上面的单摄 camera_num
   # source 支持：本地索引(0/1/2)、视频文件路径、RTSP/HTTP 流地址
   # group 为该片区对应的喷淋分组（自动模式下按此分组喷淋）
