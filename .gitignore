@@ -9,12 +9,18 @@ weights/
 # runs/train/pest27_final4/weights/best.pt
 # runs/train/pest27_final4/weights/best.onnx
 
+# --- EdgeJev 本地决策模型（构建产物，本机生成不入库；构建见 scripts/build_edge_model.py）---
+edge_models/*/*
+!edge_models/*/README.md
+.edge-build-venv/
+
 # --- 数据集（体积过大，不入库）---
 dataset/
 dataset_full/
 dataset_102/
 competition_all_sorted/
-pictures20/
+pictures20/*
+!pictures20/README.md
 selected_real_scenes/
 
 # --- 竞赛材料（PPT/规则文档，不公开）---

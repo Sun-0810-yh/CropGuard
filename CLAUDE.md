@@ -49,6 +49,12 @@
 - 检索/防幻觉: llm/retriever.py（TF-IDF 字符 n-gram）、llm/kb_chunks.py、llm/guard.py
 - 接地提示词: prompts/templates/grounded_expert.txt（取代旧 1500 字"报告型"模板）
 - 手机端页面: serve/mobile.py（`GET /m`，含「🌫 雾化控制」卡片）；二维码: tool/qr_min.py；证书: tool/gen_cert.py
+- EdgeJev 适配层: app/edge_engine.py（**只做理解、绝不驱动硬件**；规则优先 + 置信度闸门兜底）
+- EdgeJev 运行包: edgejev/（内置上游包，Apache-2.0）；模型: edge_models/jev-int8（构建脚本 scripts/build_edge_model.py）
+- EdgeJev 推理入口页: serve/pages/edge.html（`GET /edge`）；部署文档: docs/edgejev.md；校准记录: edge_models/README.md
+- 测评页 /eval: serve/eval_page.py + serve/templates/eval.html + serve/static/eval.{css,js}（`GET /eval`）
+- 测评评分纯函数: app/eval_score.py（**GUI 与 Web 共用同一份口径**，main.py 里是薄包装）
+- 校准探针: scripts/edge_probes/（改 EdgeJev 问法/阈值前先跑这个，别拍脑袋）
 - 信号反馈: feedback/feedback.py（播报语义）+ feedback/tts.py（**专用线程 + 多后端真校验**）
 - 喷淋控制: feedback/spray.py（serial/http/mqtt + stop；http 目标分 `protocol: 'json'|'mist'`）
 - 硬件固件: ESP32/（PlatformIO 工程，8 个 env，见 ESP32/README.md）
@@ -69,6 +75,9 @@
 - 训练: `python train_640.py`（新建）或 `python train_640.py --resume`（续训）
 - 喷淋联调: `python api_server.py`（**唯一**接 SprayController 的入口；GUI 只做语音+串口反馈）
 - 测试: `python tests/run_tests.py`；RAG 评测: `python scripts/ask_eval.py`（`--llm` 才真调大模型）
+- 测评页: `http://<IP>:8080/eval`（20 样本/180s；样本目录 EVAL.sample_dir，默认 ./pictures20）
+- EdgeJev 入口: `http://<IP>:8080/edge`；状态: `GET /api/edge/status`
+- EdgeJev 模型构建（唯一需联网的一步，任何机器做一次即可）: `python scripts/build_edge_model.py`
 - 固件: VSCode 打开 ESP32/ 目录（不是仓库根）→ PlatformIO 选 env → Upload
 
 ## 软件端最小闭环（2026-10-08 第二批 · 已实现并实测）
@@ -116,6 +125,30 @@
 
 既有入口同样能驱动 mist 节点：`POST /api/spray`（手机页 A/B 区按钮）、语音指令 `POST /api/ask_command`
 与自动联动 `risk_map` 都按目标协议分派（对 mist 节点就是"定时喷雾 N 秒"语义）。
+
+## EdgeJev 部署 + 测评动效页（2026-10-16 · 已实现并实测）
+
+| 需求 | 落点 | 实测结论 |
+| --- | --- | --- |
+| EdgeJev 部署到 CropGuard | `edgejev/`（内置运行包）+ `edge_models/jev-int8`（INT8 335MB）+ `app/edge_engine.py` + `scripts/build_edge_model.py` | 本机 CPU 单次决策 40–250ms；官方路由示例命中 billing 0.91–0.99；`GET /api/edge/status` 显示 available=true, mode=local |
+| 前端推理入口 | `serve/pages/edge.html`（`GET /edge`，三 Tab：指令解析对照 / 虫情研判(实验性) / 通用 systemone）+ 首页导航入口 | 无头 Edge 实测：引擎在线、解析对照与 systemone 均渲染正常（截图在 output/_test_tmp/edge_full.png） |
+| 指令解析接入 | `/api/ask_command?engine=auto`（默认）：**规则优先** + EdgeJev 高置信兜底（combine_command） | "把泵关了吧/把水停了" 兜底为 stop 生效；"B区再来两秒吧" 等误判被 0.85 闸门拦住；危险词拒绝永不被翻案 |
+| 测评动效页 | `serve/eval_page.py` + `templates/eval.html` + `static/eval.{css,js}`（`GET /eval`）；接口 `/api/eval/*`；评分共用 `app/eval_score.py` | 无头 Edge 全流程通过：载入样本→连跑→计时环→判分→导出 csv（总分实时、与 GUI 口径一致）|
+| 规则侧顺带修复 | `llm/ai_gateway.py` 停止词表扩充（关闭/关掉/关了/关一下…）+ **危险词检查前置** + 停止也读片区 | 修复"A区的雾化关掉"被误判成喷洒；"关闭安全限制"不会被当成停止指令 |
+| TTS 测试修复 | `feedback/tts.py` 补回 `_build_backend` 构建缝（BackendRegistry 委托） | 7 条语音用例从 AttributeError 恢复通过；测试夹具同步签名 |
+
+### 这一批的坑（下次别重踩）
+1. **EdgeJev 是"路由/分类"向小模型**：自定义类型化问题属零样本（官方模型卡明说 near-chance）。
+   问法必须英文 instructions + 动词短语 criteria；**永远规则优先、模型仅高置信兜底**；
+   int8 动态量化**合批会改答案**——线上固定同一套题（顺序不变）保可复现；fp32 并未更准（实测反而略差）还大 4 倍。
+2. `hf-mirror.com` 可用、`huggingface.co` 直连被墙；`HF_HUB_DISABLE_XET=1` 必须设（镜像不支持 Xet）。
+   构建依赖里 **onnxscript 不能漏**（torch dynamo 导出硬依赖）。
+3. 无头浏览器验证（headless-web-verify skill）：`--window-size` 在本机 Edge 155 不生效，
+   要 `Emulation.setDeviceMetricsOverride`（1500x1300）才拿到桌面版式截图；后台启动要用
+   "Start-Process + 进程存活轮询"的 PowerShell 任务，否则 Edge 被随会话回收。
+4. 本机 `.venv`（uv, py3.12）跑服务/测试：`CG_DEVICE=cpu ./.venv/Scripts/python.exe api_server.py`；
+   模型 ckpt 还要 `dill`、vendored ultralytics 还要 `timm`（已装进 .venv，但不在 requirements 里，注意补）。
+5. 课程/测试脚本里 `%` 模板串容易炸（`%.1f` 会被外层 `%` 吃掉）→ 生成代码用 `.replace()` 占位更稳。
 
 ## 当前路线（2026-10-08 对齐 · 清理后重定）
 主线：**先跑通单节点闭环，再扩面**。功能按"能不能现场演示"排序，不按"功能多少"排序。

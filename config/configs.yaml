@@ -325,6 +325,11 @@ EVAL:
   overtime_penalty_per_sec: 0.5
   # 关程序时若本轮已有样本且还没导出过，自动导出一份评分报告（防误关丢分）
   auto_export_on_close: true
+  # 服务器侧样本目录：Web 测评页 /eval 的「从服务器载入」从这里读图；
+  # 目录不存在/为空时页面自动切换为「上传模式」（拖拽文件夹，不依赖服务器文件）
+  sample_dir: './pictures20'
+  # Web 测评页导出的评分报告目录（GUI 导出去 output/ 根，这里单独建子目录避免混在一起）
+  report_dir: './output/eval_reports'
 
 # ==================== 信号反馈配置 ====================
 FEEDBACK:
@@ -453,6 +458,36 @@ RAG:
   top_k: 4
   # 字符 n-gram 范围（中文用 char_wb 效果稳，不需要分词库）
   char_ngram: [2, 4]
+
+# ==================== EdgeJev 本地类型化决策（离线 CPU 推理） ====================
+# 把「一句话 → 结构化决策」（喷洒指令理解 / 虫情处置研判）放到本机 CPU 完成：
+# 单题毫秒级、断网可用、运行时不依赖 torch、不上传任何数据。
+# 部署（唯一需要联网的一步，在任何一台有网的机器上跑一次即可）：
+#   python scripts/build_edge_model.py          # 产出 edge_models/jev-int8（~324MB，自包含）
+# 验证：GET /api/edge/status   ·   前端推理入口：http://<IP>:8080/edge
+EDGE:
+  # 总开关（关掉后 /api/edge/* 返回 available=false，/api/ask_command 走回规则解析）
+  enabled: true
+  # 模型目录（build 产出的自包含目录：model.onnx + tokenizer.json + edgejev.json）
+  model_dir: './edge_models/jev-int8'
+  # 引擎形态：
+  #   auto  = 先试进程内直调（最快），失败再试本地 HTTP 服务
+  #   local = 只用进程内直调（需要本目录自带 edgejev 包 + onnxruntime/tokenizers）
+  #   http  = 只连 edgejev serve 起的本地服务（独立进程/独立 venv 部署时用）
+  mode: 'auto'
+  # mode=http 时连的本地服务地址（edgejev serve --model ./edge_models/jev-int8 --port 8009）
+  base_url: 'http://127.0.0.1:8009'
+  # 服务端设了 --api-key 时在此填同样的 key（本地进程间一般留空）
+  api_key: ''
+  # 单次决策超时（秒）—— 模型是 15ms 量级，给 5s 已经很宽容
+  timeout: 5.0
+  # onnxruntime 线程数；0 = 自动（CPU 核数）
+  threads: 0
+  # /api/ask_command 是否优先用 EdgeJev 做语义解析：
+  #   true  = EdgeJev 可用时优先（解析更抗改写），任何失败自动回退规则解析
+  #   false = 只用既有规则解析（EdgeJev 仍可通过 /api/edge/parse_command 独立调用）
+  # ⚠️ 无论哪条路径，解析结果都必须过同一道安全网关（片区白名单/时长钳制/危险词/人工确认）
+  prefer_for_commands: true
 
 # ==================== 手机端 ====================
 PHONE:

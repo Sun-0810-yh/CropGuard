@@ -56,6 +56,10 @@ from llm import ai_gateway
 # 页面渲染
 from serve import mobile as mobile_page
 from serve import pages as static_pages
+# EdgeJev 本地类型化决策（离线 CPU 推理，部署见 docs/edgejev.md）
+from app import edge_engine
+# 现场测评评分口径（与 GUI 共用同一份纯函数）
+from app.eval_score import rubric_from_config as _rubric_from_config, score_with_rubric
 
 # ==================== FastAPI App ====================
 app = FastAPI(
@@ -316,6 +320,8 @@ async def mobile_home(request: Request):
 # ==================== 本地大模型问答（RAG + 防幻觉） ====================
 _chat_cfg = config.get('CHAT', {}) or {}
 _rag_cfg = config.get('RAG', {}) or {}
+# EdgeJev 本地类型化决策（见 configs.yaml 的 EDGE 段）
+_edge_cfg = config.get('EDGE', {}) or {}
 
 
 @app.post("/api/ask")
@@ -378,18 +384,50 @@ def kb_search(q: str, top_k: int = None):
 async def ask_command(payload: dict):
     """自然语言 → 喷洒意图（**默认只解析不执行**，需人工确认）。
 
-    body: {"text": "给片区A喷3秒", "execute": false}
+    body: {"text": "给片区A喷3秒", "execute": false, "engine": "auto|edge|rule"}
       * execute=false（默认）：只返回解析结果，前端弹确认按钮；
       * execute=true：确认后真正下发（等价于 /api/spray），并写历史。
+      * engine：解析引擎。auto（默认，配置 EDGE.prefer_for_commands 决定是否先用
+        EdgeJev）/ edge（强制 EdgeJev）/ rule（强制规则解析）。
 
-    安全要点：大模型的自由文本永远不能直接驱动硬件；
-    分组必须在白名单内、时长必须被钳制（SPRAY.max_duration）。
+    安全要点（与引擎无关，永远不变）：解析出来的意图必须过安全网关 ——
+    分组在白名单内、时长被钳制（SPRAY.max_duration）、危险表述拒绝、
+    人工确认后才真正下发；类型化决策（EdgeJev）与规则解析都只是"理解"，不驱动硬件。
     """
     text = (payload.get("text") or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="缺少 'text' 字段")
     max_duration = int((cfg_spray.get('max_duration') or 5))
-    parsed = ai_gateway.parse_command(text, max_duration=max_duration)
+
+    # 既有规则解析始终算一份：规则成功就用规则（确定性）；
+    # 规则拿不准时由 EdgeJev 带置信度闸门兜底（见 app/edge_engine.combine_command）。
+    rule_parsed = ai_gateway.parse_command(text, max_duration=max_duration)
+
+    engine_pref = str(payload.get("engine") or
+                      ('auto' if _edge_cfg.get('prefer_for_commands', True) else 'rule')).lower()
+    if engine_pref not in ('auto', 'edge', 'rule'):
+        engine_pref = 'auto'
+    parsed = dict(rule_parsed)
+    parsed['parse_engine'] = 'rule'
+    edge_info = None
+    if engine_pref in ('auto', 'edge') and edge_engine.available():
+        edge_out = edge_engine.parse_command(
+            text, max_duration=max_duration,
+            parse_duration=ai_gateway._parse_duration,
+            block_words=ai_gateway._BLOCK_WORDS,
+            rule_parser=ai_gateway.parse_command)   # 内部算 combined（规则优先 + 兜底闸门）
+        if (edge_out or {}).get('success'):
+            parsed = edge_out.get('combined') or parsed
+            engine_used = parsed.get('engine')
+            parsed['parse_engine'] = engine_used if engine_used in ('edge', 'rule') else 'rule'
+            parsed['parse_latency_ms'] = edge_out.get('latency_ms')
+            edge_info = {'mode': edge_out.get('mode'),
+                         'latency_ms': edge_out.get('latency_ms'),
+                         'intent': (edge_out.get('parsed') or {}).get('intent')}
+        elif engine_pref == 'edge':
+            # 强制 edge 但引擎没起来：如实报告，不假装解析成功
+            return {"success": False, "error": (edge_out or {}).get('error') or 'EdgeJev 不可用',
+                    "available": False, "engine": "edge"}
 
     allowed_groups = set(spray.http_targets.keys()) | {'all'}
     if parsed.get('group') and parsed['group'] not in allowed_groups:
@@ -407,6 +445,8 @@ async def ask_command(payload: dict):
                             duration=parsed.get('duration') or 0,
                             source='phone-chat')
     parsed.update(executed=bool(executed), available=bool(spray.available))
+    if edge_info is not None:
+        parsed['edge'] = edge_info
     return {"success": True, **parsed}
 
 
@@ -417,6 +457,220 @@ async def feedback_status():
         return {"success": True, "feedback": feedback.status()}
     except Exception as exc:
         return {"success": False, "error": str(exc)}
+
+
+# ==================== EdgeJev 本地类型化决策（离线 CPU 推理） ====================
+# 部署与设计见 app/edge_engine.py 与 docs/edgejev.md。三个入口：
+#   GET  /api/edge/status          —— 引擎状态（模型/形态/延迟）
+#   POST /api/edge/systemone       —— 通用类型化决策（前端推理入口页用）
+#   POST /api/edge/parse_command   —— 喷洒指令解析（只解析，不执行；执行仍走 /api/spray）
+#   POST /api/edge/advise          —— 虫情处置研判（辅助参考，不驱动硬件）
+# 刻意用普通 def：http 形态会同步访问本地服务，FastAPI 丢线程池，别堵事件循环。
+
+@app.get("/api/edge/status")
+def edge_status(refresh: bool = False):
+    """EdgeJev 引擎状态：可用性/形态/模型信息/累计延迟统计 + 未部署时的构建指引。"""
+    try:
+        return edge_engine.status(refresh=bool(refresh))
+    except Exception as exc:
+        traceback.print_exc()
+        return {"success": False, "available": False, "error": str(exc)}
+
+
+@app.post("/api/edge/systemone")
+def edge_systemone(payload: dict):
+    """通用类型化决策（官方 /v1/systemone 同构协议）。
+
+    body: {"state": "文本或 JSON", "questions": {"qid": {"type": "choice|score|noul",
+           "instructions": "...", "criteria": {...}|[...]}}}
+    返回: {success, answers, usage, latency_ms, mode}
+    """
+    state = payload.get("state")
+    questions = payload.get("questions")
+    if state is None or not isinstance(questions, dict) or not questions:
+        raise HTTPException(status_code=400, detail="需要 'state' 与 'questions'（对象）")
+    if len(questions) > 12:
+        raise HTTPException(status_code=400, detail="单次最多 12 个问题")
+    for qid, q in questions.items():
+        if not isinstance(q, dict) or q.get("type") not in ("choice", "score", "noul") \
+                or not q.get("instructions"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"问题 {qid} 格式不对：需要 type(choice|score|noul) + instructions")
+    try:
+        out = edge_engine.decide(state, questions,
+                                 timeout=float(_edge_cfg.get('timeout') or 5.0))
+    except Exception as exc:
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"success": False, "error": str(exc)})
+    if not out.get("success") and not out.get("available"):
+        return {"success": False, "available": False, "error": out.get("error"),
+                "hint": "先跑 python scripts/build_edge_model.py 构建模型，见 /edge 页"}
+    return out
+
+
+@app.post("/api/edge/parse_command")
+def edge_parse_command(payload: dict):
+    """EdgeJev 喷洒指令解析（**只解析，不执行**；执行必须走人工确认 + /api/spray）。
+
+    body: {"text": "把A区的水阀开一小会儿"}
+    返回: {success, parsed{intent/group/duration/valid/reply...}, answers(原始决策), latency_ms}
+    """
+    text = (payload.get("text") or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="缺少 'text' 字段")
+    max_duration = int((cfg_spray.get('max_duration') or 5))
+    try:
+        out = edge_engine.parse_command(
+            text, max_duration=max_duration,
+            parse_duration=ai_gateway._parse_duration,
+            block_words=ai_gateway._BLOCK_WORDS,
+            rule_parser=ai_gateway.parse_command)   # 内部同时给出 rule / parsed / combined
+    except Exception as exc:
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"success": False, "error": str(exc)})
+    return out
+
+
+@app.get("/edge", response_class=HTMLResponse)
+async def edge_page():
+    """EdgeJev 推理入口页（指令解析 / 虫情研判 / 通用类型化决策）。"""
+    return static_pages.load('edge')
+
+
+@app.post("/api/edge/advise")
+def edge_advise(payload: dict = None):
+    """虫情处置研判（类型化决策，辅助参考）。不改动自动联动的既有风险分级口径。"""
+    payload = payload or {}
+    dets = payload.get("detections")
+    risk = payload.get("risk")
+    if dets is None and _last_result.get("result"):
+        dets = _last_result["result"].get("detections")
+        risk = risk or _last_result["result"].get("risk")
+    try:
+        return edge_engine.decide_detection(dets or [], risk=risk)
+    except Exception as exc:
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"success": False, "error": str(exc)})
+
+
+# ==================== Web 测评页 /eval（20 样本 / 180 秒，与 GUI 同口径） ====================
+# 现场口径：准确度 20 + 时效性 10 = 30（见 configs.yaml EVAL 段与 app/eval_score.py）。
+# 页面逻辑在 serve/templates/eval.html + serve/static/eval.js，这里只提供数据与落盘。
+
+
+def _eval_sample_dir():
+    """样本目录（相对路径按仓库根解析，和权重路径口径一致）。"""
+    p = str(_rubric_from_config(config).get('sample_dir') or './pictures20')
+    return p if os.path.isabs(p) else os.path.join(os.path.dirname(os.path.abspath(__file__)), p)
+
+
+def _eval_report_dir():
+    p = str(_rubric_from_config(config).get('report_dir') or './output/eval_reports')
+    return p if os.path.isabs(p) else os.path.join(os.path.dirname(os.path.abspath(__file__)), p)
+
+
+@app.get("/eval", response_class=HTMLResponse)
+async def eval_page():
+    """现场测评页（20 样本 / 180 秒）：动效呈现每张用时与总用时，评委可逐张判分。"""
+    from serve import eval_page as _eval_page
+    return _eval_page.render(config=config)
+
+
+@app.get("/api/eval/config")
+async def eval_config():
+    """测评页口径参数 + 样本目录状态（页面据此决定"服务器载入"还是"上传模式"）。"""
+    from app.eval_score import list_sample_images
+    rubric = _rubric_from_config(config)
+    samples = list_sample_images(_eval_sample_dir())
+    return {
+        'success': True,
+        **rubric,
+        'sample_dir': _eval_sample_dir(),
+        'sample_dir_exists': os.path.isdir(_eval_sample_dir()),
+        'sample_count': len(samples),
+        'samples': samples[:200],
+        'report_dir': _eval_report_dir(),
+    }
+
+
+@app.get("/api/eval/samples")
+async def eval_samples():
+    """服务器侧样本清单（页面「从服务器载入」用）。"""
+    from app.eval_score import list_sample_images
+    samples = list_sample_images(_eval_sample_dir())
+    return {'success': True, 'dir': _eval_sample_dir(), 'count': len(samples),
+            'samples': samples}
+
+
+@app.get("/api/eval/sample_image")
+def eval_sample_image(name: str):
+    """读一张服务器侧样本图（只在样本目录白名单内取，防目录穿越）。"""
+    from fastapi.responses import FileResponse
+    from app.eval_score import is_image_name
+    base = os.path.basename(name or '')
+    if not base or base != name or not is_image_name(base):
+        raise HTTPException(status_code=400, detail='非法文件名')
+    full = os.path.join(_eval_sample_dir(), base)
+    if not os.path.isfile(full):
+        raise HTTPException(status_code=404, detail=f'样本不存在: {base}')
+    return FileResponse(full)
+
+
+@app.post("/api/eval/score")
+def eval_score_api(payload: dict):
+    """按现场口径算分（与 GUI 同一份纯函数；records 只读 verdict 字段）。"""
+    rubric = _rubric_from_config(config)
+    records = payload.get('records') or []
+    elapsed = payload.get('elapsed') or 0
+    return {'success': True, 'score': score_with_rubric(records, elapsed, rubric),
+            'rubric': {k: rubric[k] for k in ('target', 'pps', 'limit', 'time_full',
+                                              'penalty', 'acc_full', 'total_full')}}
+
+
+@app.post("/api/eval/report")
+def eval_report(payload: dict):
+    """导出评分报告到 EVAL.report_dir（格式与 GUI 导出的 csv 对齐：逐样本 + 汇总）。
+
+    body: {"records": [{no,name,time,detections:[{chinese_name,confidence}],
+           consum,elapsed,verdict}], "elapsed": 87.3}
+    """
+    from tool.tools import writecsv
+    from app.eval_score import build_report_rows
+    rubric = _rubric_from_config(config)
+    records = payload.get('records') or []
+    if not records:
+        raise HTTPException(status_code=400, detail='还没有样本，无法导出评分报告')
+    elapsed = payload.get('elapsed') or 0
+    rows, score = build_report_rows(records, elapsed, rubric)
+
+    try:
+        out_dir = _eval_report_dir()
+        os.makedirs(out_dir, exist_ok=True)
+        stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        name = f'eval_report_web_{stamp}.csv'
+        path = os.path.join(out_dir, name)
+        writecsv(rows, path)
+    except Exception as exc:
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={'success': False, 'error': str(exc)})
+    print(f'[EVAL] Web 测评报告已导出：{path}（总分 {score["score"]:.1f} / {rubric["total_full"]:.0f}）',
+          flush=True)
+    return {'success': True, 'path': path, 'name': name,
+            'url': f'/api/eval/report/download?name={name}', 'score': score}
+
+
+@app.get("/api/eval/report/download")
+def eval_report_download(name: str):
+    """下载导出的评分报告（只在 report_dir 内取，防目录穿越）。"""
+    from fastapi.responses import FileResponse
+    base = os.path.basename(name or '')
+    if not base or base != name:
+        raise HTTPException(status_code=400, detail='非法文件名')
+    full = os.path.join(_eval_report_dir(), base)
+    if not os.path.isfile(full):
+        raise HTTPException(status_code=404, detail='报告不存在')
+    return FileResponse(full, filename=base, media_type='text/csv')
 
 
 @app.get("/api/history")

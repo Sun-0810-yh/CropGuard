@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CropGuard - 现场测评（20 样本 / 180 秒）</title>
+<style>
+{{STYLE}}
+</style>
+</head>
+<body>
+<header class="hero">
+  <div>
+    <h1>现场测评 <span class="badge">20 样本 / 180 秒</span></h1>
+    <p>与桌面端同一口径：准确度 20 分 + 时效性 10 分 = 30 分 · 未评判不计入正确</p>
+  </div>
+  <nav class="hero-nav">
+    <a href="/">首页</a>
+    <a href="/stream">实时监测</a>
+    <a href="/edge">EdgeJev</a>
+  </nav>
+</header>
+
+<main class="layout">
+  <!-- ==================== 左列：控制台 + 结果 ==================== -->
+  <section class="col-main">
+    <div class="panel controls">
+      <div class="src-row">
+        <div class="src-status" id="srcStatus">正在读取测评配置…</div>
+        <div class="src-actions">
+          <button class="btn ghost" id="btnLoadSrv" disabled>⛁ 从服务器载入</button>
+          <label class="btn ghost" for="dirInput">📁 选择文件夹</label>
+          <input type="file" id="dirInput" webkitdirectory directory multiple hidden>
+          <label class="btn ghost" for="fileInput">🖼 选择图片</label>
+          <input type="file" id="fileInput" accept="image/*" multiple hidden>
+        </div>
+      </div>
+      <div class="run-row">
+        <button class="btn primary big" id="btnStart" disabled>▶ 开始测评</button>
+        <button class="btn danger" id="btnStop" disabled>■ 停止</button>
+        <button class="btn ghost" id="btnReset" disabled>↻ 重置</button>
+        <label class="conf">置信度
+          <input type="range" id="conf" min="0.1" max="0.9" step="0.05" value="0.4">
+          <span id="confVal">0.4</span>
+        </label>
+      </div>
+      <div class="run-msg" id="runMsg"></div>
+      <div class="sample-strip" id="strip"></div>
+    </div>
+
+    <div class="panel current" id="currentPanel" hidden>
+      <div class="shot">
+        <img id="curImg" alt="">
+        <div class="scan" id="curScan"></div>
+      </div>
+      <div class="cur-info">
+        <div class="cur-name" id="curName">—</div>
+        <div class="cur-meta" id="curMeta"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2>逐样本结果</h2>
+        <div class="src-status" id="gridStat"></div>
+      </div>
+      <div class="grid" id="grid"></div>
+      <div class="empty" id="gridEmpty">还没有样本 —— 先「从服务器载入」或「选择文件夹 / 选择图片」</div>
+    </div>
+  </section>
+
+  <!-- ==================== 右列：计时 / 用时 / 得分 ==================== -->
+  <aside class="col-side">
+    <div class="panel timer-panel" id="timerPanel">
+      <div class="ring-wrap">
+        <svg viewBox="0 0 200 200" width="210" height="210">
+          <circle class="ring-bg" cx="100" cy="100" r="88"></circle>
+          <circle class="ring-fg" id="ringFg" cx="100" cy="100" r="88"></circle>
+        </svg>
+        <div class="ring-center">
+          <div class="big" id="ringBig">180.0</div>
+          <div class="sub" id="ringSub">秒剩余 · 待开始</div>
+        </div>
+      </div>
+      <div class="race-state" id="raceState">点「开始测评」后，第一张样本自动起表</div>
+    </div>
+
+    <div class="panel">
+      <h3>总用时 / 限时</h3>
+      <div class="total-row">
+        <span class="now" id="totalTime">0.0</span><span class="sep">/</span>
+        <span class="lim"><span id="limitTime">180</span> s</span>
+        <span class="verdict-chip" id="totalVerdict" style="display:none"></span>
+      </div>
+      <div class="track"><div class="fill" id="trackFill"></div></div>
+      <div class="ahead" id="aheadText">尚未开始</div>
+    </div>
+
+    <div class="panel">
+      <h3>得分</h3>
+      <div class="score-grid">
+        <div class="score-item"><div class="k">准确度</div><div class="v" id="scoreAcc">0.0</div><div class="m">/ <span id="accFull">20</span>（判对 × 1 分）</div></div>
+        <div class="score-item"><div class="k">时效性</div><div class="v" id="scoreTime">10.0</div><div class="m">/ <span id="timeFull">10</span>（超时每秒 −0.5）</div></div>
+        <div class="score-item big"><div class="k">总分</div><div class="v" id="scoreTotal">0.0</div><div class="m">/ <span id="totalFull">30</span></div></div>
+      </div>
+      <div class="judge-stat" id="judgeStat">样本 0 / <span id="targetN">20</span> · 已评判 0 · 正确 0</div>
+      <button class="btn ghost wide" id="btnExport" disabled>⤓ 导出评分报告（CSV，与 GUI 同格式）</button>
+    </div>
+
+    <div class="panel">
+      <h3>每张用时</h3>
+      <div class="bars" id="bars"></div>
+      <div class="bars-empty" id="barsEmpty">识别后显示每张耗时</div>
+    </div>
+  </aside>
+</main>
+
+<div class="foot-note">
+  推理与检测走 <code>POST /api/detect</code>（与 PC 首页/手机端同一条链路）；
+  计时口径：第一张样本开始识别起表，最后一张识别完成停表。
+</div>
+
+<script>
+{{SCRIPT}}
+</script>
+</body>
+</html>

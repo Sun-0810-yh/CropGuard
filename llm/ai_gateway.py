@@ -328,10 +328,19 @@ _GROUP_WORDS = {
 }
 _SPRAY_WORDS = ['喷', '喷洒', '喷淋', '喷药', '打药', '洒水', '雾化', '执行', '启动']
 
+# 停止类关键词（2026-10-16 扩充）：
+# 实测漏判 "A区的雾化关掉"/"把泵关了吧"/"给B区关一下" —— 原来只认 '停止/停下/关闭喷洒/别喷'，
+# "关掉/关了/关一下" 这类口语全部漏掉，会被后面的喷洒词（雾化/喷）误判成"开始喷洒"。
+# ⚠️ 危险词检查必须先于本表执行（见 parse_command），否则 "关掉安全限制" 会被当成停止指令。
+_STOP_WORDS = ('停止', '停下', '关闭', '关掉', '关了', '关一下', '取消喷洒', '结束喷洒',
+               '别喷', '不要喷')
+
 # 危险词：出现这些一律不允许直接执行，只给人工确认/拒绝
-# 注意要覆盖"加大剂量/多喷/超量"这类会伤作物或烧雾化片的说法
+# 注意要覆盖"加大剂量/多喷/超量"这类会伤作物或烧雾化片的说法，
+# 以及"关闭/绕过安全限制"这类绕过安全边界的说法
 _BLOCK_WORDS = ['一直喷', '持续喷', '不停', '循环喷', '最大', '全开', '关掉安全',
-                '加大剂量', '加量', '多喷', '超量', '不限时', '无限']
+                '关闭安全', '绕过安全', '解除安全', '加大剂量', '加量', '多喷', '超量',
+                '不限时', '无限']
 
 
 def _match_group(text):
@@ -380,8 +389,20 @@ def parse_command(text, max_duration=5):
               'needs_confirm': True, 'max_duration': int(max_duration),
               'reason': '', 'reply': ''}
 
-    if any(k in t for k in ('停止', '停下', '关闭喷洒', '别喷')):
-        result.update(intent='stop', group='all', duration=0, valid=True,
+    # ⚠️ 顺序很重要：危险词检查放在最前面 —— 它是安全底线，任何情况下都不放行。
+    #    （反例：不加这一层时 "关闭安全限制" 会被"关闭"匹配成停止指令。）
+    for kw in _BLOCK_WORDS:
+        if kw in t:
+            result.update(intent='spray', valid=False,
+                          reason=f'含不安全表述"{kw}"',
+                          reply='该指令不符合安全规则（雾化片单次喷淋有硬上限），'
+                                '已拒绝。需要请手动点选片区分组与时长。')
+            return result
+
+    if any(k in t for k in _STOP_WORDS):
+        # 停止也尽量读到片区：说"A区关掉"只停 A 区，不误停全体
+        stop_group = _match_group(t) or 'all'
+        result.update(intent='stop', group=stop_group, duration=0, valid=True,
                       reply='已解析为"停止喷洒"意图，请确认后执行。')
         return result
 
@@ -392,13 +413,6 @@ def parse_command(text, max_duration=5):
         return result
 
     result['intent'] = 'spray'
-    for kw in _BLOCK_WORDS:
-        if kw in t:
-            result.update(intent='spray', valid=False,
-                          reason=f'含不安全表述"{kw}"',
-                          reply='该指令不符合安全规则（雾化片单次喷淋有硬上限），'
-                                '已拒绝。需要请手动点选片区分组与时长。')
-            return result
 
     group = _match_group(t)
     if group is None:

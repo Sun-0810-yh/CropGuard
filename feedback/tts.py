@@ -251,6 +251,21 @@ class BackendRegistry:
         return None, 'none', errors
 
 
+def _build_backend(prefer='auto', rate=180, volume=1.0, selftest=True):
+    """后端构建入口（模块级，返回 (backend, backend_name, errors)）。
+
+    这是 TTSEngine 线程里实际调用的构建缝（2026-10-16 补回）：
+
+    * 新实现委托给 ``BackendRegistry``（保持"优先级 + 真出声校验"的设计）；
+    * 同时它也是**测试注入点** —— tests/test_feedback_and_camera.py 通过
+      替换本函数来塞入假后端，从而在不需要真实声卡的机器上验证
+      "队列 / 最新优先 / 去重" 这些核心逻辑。
+
+    没有这层缝时，那 7 条语音用例会以 AttributeError 挂掉（曾发生）。
+    """
+    return BackendRegistry(prefer).build(rate, volume, selftest=selftest)
+
+
 # ================================================================ 对外引擎
 class TTSEngine:
     """专用线程 + 队列的离线播报器；任何失败都不会抛出到调用方。"""
@@ -299,9 +314,10 @@ class TTSEngine:
             except Exception:
                 pass
 
-        registry = BackendRegistry(self.engine_pref)
-        self._backend, self._backend_name, self._init_errors = registry.build(
-            self.rate, self.volume, selftest=self.init_selftest)
+        # 注意：这里走模块级 _build_backend（而不是 registry.build 直接调用），
+        # 让测试可以注入假后端；两者行为完全一致。
+        self._backend, self._backend_name, self._init_errors = _build_backend(
+            self.engine_pref, self.rate, self.volume, selftest=self.init_selftest)
 
         if self._backend is None:
             print(f"[TTS] 无可用语音后端（{'; '.join(self._init_errors) or 'none'}）；"
