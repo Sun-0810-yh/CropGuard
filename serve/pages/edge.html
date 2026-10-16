@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CropGuard - EdgeJev 本地类型化决策（选择题决策点）</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  background: radial-gradient(1200px 600px at 15% -10%, #2c6332 0%, #1a3a1a 45%, #12260f 100%);
+  min-height: 100vh; color: #23301f;
+}
+.header {
+  background: rgba(23, 48, 26, .88); color: #fff; padding: 18px 26px;
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  border-bottom: 1px solid rgba(255,255,255,.08); position: sticky; top: 0; z-index: 20;
+  backdrop-filter: blur(6px); flex-wrap: wrap;
+}
+.header h1 { font-size: 21px; }
+.header h1 .badge {
+  font-size: 12px; font-weight: 600; vertical-align: 3px; margin-left: 10px;
+  background: linear-gradient(120deg, #3f7a41, #62a866); color: #eaffea;
+  padding: 3px 10px; border-radius: 999px;
+}
+.header p { font-size: 12.5px; color: #8fd18f; margin-top: 3px; max-width: 880px; line-height: 1.6; }
+.nav a {
+  color: #cfe8cf; text-decoration: none; font-size: 13px; margin-left: 12px;
+  padding: 7px 13px; border: 1px solid rgba(255,255,255,.18); border-radius: 999px;
+}
+.nav a:hover { background: rgba(255,255,255,.12); }
+.container { max-width: 1180px; margin: 20px auto 60px; padding: 0 20px; }
+.panel { background: #fff; border-radius: 14px; padding: 20px 22px; margin-bottom: 16px;
+  box-shadow: 0 6px 24px rgba(0,0,0,.18); }
+.panel h2 { font-size: 16px; color: #24502a; margin-bottom: 12px; }
+.panel h3 { font-size: 14px; color: #24502a; margin-bottom: 10px; }
+.muted { color: #6b7a68; font-size: 12.5px; }
+.mono { font-family: Consolas, 'Courier New', monospace; }
+
+/* 定位条 */
+.role-bar { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; line-height: 1.8; }
+.role-bar .icon { font-size: 18px; }
+.role-bar b { color: #24502a; }
+.role-bar .no { color: #a33; font-weight: 600; }
+
+/* 状态条 */
+.status-bar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.chip { display: inline-flex; align-items: center; gap: 7px; font-size: 13px;
+  padding: 6px 13px; border-radius: 999px; font-weight: 600; }
+.chip.on { background: #e8f5e9; color: #24502a; }
+.chip.off { background: #fdecec; color: #a33; }
+.chip .dot { width: 8px; height: 8px; border-radius: 50%; background: #4caf50;
+  animation: blink 1.8s ease-in-out infinite; }
+.chip.off .dot { background: #d84343; animation: none; }
+@keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+.kv { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12.5px; color: #6b7a68; }
+.kv b { color: #23301f; }
+
+/* 标签页 */
+.tabs { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+.tab { cursor: pointer; padding: 9px 18px; border-radius: 10px; font-size: 14px;
+  background: #f2f6f1; color: #24502a; border: 1px solid #e3e9e1; font-weight: 600; }
+.tab.active { background: linear-gradient(120deg, #2d5a2d, #47a04a); color: #fff; border-color: transparent;
+  box-shadow: 0 4px 14px rgba(45,90,45,.3); }
+.tab .st { font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 999px; margin-left: 6px;
+  vertical-align: 1px; }
+.st.active { background: #dff3df; color: #2e7d32; }
+.st.experimental { background: #fff3e0; color: #b26a00; }
+.st.planned { background: #eef2fb; color: #3557a5; }
+.pane { display: none; }
+.pane.active { display: block; animation: paneIn .35s ease both; }
+@keyframes paneIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* 选项集（选择题的"题面"） */
+.optset { border: 1px dashed #cfe0cd; border-radius: 12px; background: #f7fbf6; padding: 14px 16px; margin-bottom: 16px; }
+.optset .head { display: flex; align-items: center; gap: 9px; font-size: 13px; color: #24502a; font-weight: 700; margin-bottom: 4px; }
+.optset .head .hint { font-weight: 400; color: #6b7a68; font-size: 12px; }
+.qrow { display: flex; align-items: flex-start; gap: 10px; margin-top: 10px;
+  padding-top: 10px; border-top: 1px solid #e9f1e8; flex-wrap: wrap; }
+.qrow:first-of-type { border-top: none; }
+.qrow .qname { min-width: 160px; font-size: 13px; color: #23301f; font-weight: 600; }
+.qrow .qname .t { font-size: 11px; font-weight: 700; color: #1d5fb0; background: #e3f0ff;
+  border-radius: 999px; padding: 1px 8px; margin-left: 6px; }
+.qrow .opts { display: flex; gap: 7px; flex-wrap: wrap; flex: 1; }
+.opt { font-size: 12.5px; border-radius: 8px; padding: 4px 11px; background: #fff;
+  border: 1px solid #d8e2d6; color: #3c4a38; }
+.opt b { color: #24502a; font-family: Consolas, monospace; font-weight: 700; }
+.opt .g { color: #8a97a3; margin-left: 5px; }
+
+/* 输入区 */
+.input-row { display: flex; gap: 10px; margin-top: 4px; flex-wrap: wrap; }
+input[type=text], textarea {
+  flex: 1; min-width: 260px; border: 1px solid #d8e2d6; border-radius: 10px;
+  padding: 11px 14px; font-size: 14px; font-family: inherit; color: #23301f; background: #fbfdfa;
+}
+textarea { min-height: 96px; resize: vertical; line-height: 1.6; }
+input:focus, textarea:focus { outline: 2px solid rgba(71,160,74,.35); border-color: #47a04a; }
+.btn { border: none; cursor: pointer; border-radius: 10px; font-size: 14px; font-weight: 600;
+  padding: 11px 22px; background: linear-gradient(120deg, #2d5a2d, #47a04a); color: #fff;
+  transition: transform .12s, box-shadow .2s, opacity .2s; }
+.btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(45,90,45,.35); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn.ghost { background: #f2f6f1; color: #24502a; border: 1px solid #e3e9e1; }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 2px; }
+.chips .c { cursor: pointer; font-size: 12.5px; padding: 5px 12px; border-radius: 999px;
+  background: #eef5ed; color: #2d5a2d; border: 1px solid #d8e7d6; }
+.chips .c:hover { background: #e1efe0; }
+
+/* 结果卡 */
+.results { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 16px; }
+@media (max-width: 860px) { .results { grid-template-columns: 1fr; } }
+.res-card { border: 1px solid #e3e9e1; border-radius: 12px; padding: 14px 16px; background: #fbfdfa; }
+.res-card h3 { display: flex; align-items: center; gap: 8px; }
+.res-card h3 .eng { font-size: 11.5px; padding: 2px 9px; border-radius: 999px; font-weight: 700; }
+.eng.edge { background: #e3f0ff; color: #1d5fb0; }
+.eng.rule { background: #fff3e0; color: #b26a00; }
+.eng.comb { background: #e8f5e9; color: #2e7d32; }
+.verdict-line { margin-top: 8px; font-size: 14px; line-height: 1.7; }
+.verdict-line .lbl { color: #6b7a68; font-size: 12.5px; }
+.badge-ok { background: #e8f5e9; color: #2e7d32; }
+.badge-bad { background: #fdecec; color: #a33; }
+.badge { font-size: 12px; padding: 2px 10px; border-radius: 999px; font-weight: 700; display: inline-block; }
+
+/* 概率条 */
+.prob { margin-top: 8px; }
+.prob .row { display: flex; align-items: center; gap: 8px; margin-top: 5px; font-size: 12.5px; }
+.prob .row .k { width: 86px; color: #6b7a68; font-family: Consolas, monospace; }
+.prob .row .bar { flex: 1; height: 10px; background: #edf3ec; border-radius: 999px; overflow: hidden; }
+.prob .row .fill { height: 100%; width: 0; border-radius: 999px;
+  background: linear-gradient(90deg, #6cc26f, #3f7a41); transition: width .6s cubic-bezier(.2,.8,.3,1.1); }
+.prob .row.top .k { color: #24502a; font-weight: 700; }
+.prob .row.top .fill { background: linear-gradient(90deg, #47a04a, #2d5a2d); }
+.prob .row .v { width: 52px; text-align: right; font-family: Consolas, monospace; color: #24502a; }
+
+.latency { display: inline-flex; align-items: center; gap: 6px; font-family: Consolas, monospace;
+  font-size: 12.5px; color: #1d5fb0; background: #eef4fd; padding: 3px 10px; border-radius: 999px; }
+pre.raw { background: #10240f; color: #c9e8c5; border-radius: 10px; padding: 12px 14px;
+  font-size: 12px; overflow: auto; max-height: 260px; margin-top: 10px; line-height: 1.6; }
+details summary { cursor: pointer; color: #6b7a68; font-size: 12.5px; margin-top: 8px; }
+.empty-hint { color: #98a894; font-size: 13px; margin-top: 14px; }
+
+/* 对照表 */
+.cmp { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+.cmp th, .cmp td { padding: 8px 10px; border-bottom: 1px solid #edf3ec; text-align: left; }
+.cmp th { color: #6b7a68; font-weight: 600; font-size: 12px; }
+.cmp td.mono { font-family: Consolas, monospace; }
+
+/* 研判卡 */
+.advice-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 14px; }
+@media (max-width: 860px) { .advice-grid { grid-template-columns: 1fr; } }
+.advice-card { border: 1px solid #e3e9e1; border-radius: 12px; padding: 14px; background: #fbfdfa; text-align: center;
+  animation: paneIn .4s ease both; }
+.advice-card .t { font-size: 12.5px; color: #6b7a68; }
+.advice-card .v { font-size: 22px; font-weight: 800; color: #24502a; margin: 6px 0 4px; }
+.advice-card .m { font-size: 12px; color: #6b7a68; }
+.note-box { margin-top: 12px; font-size: 12.5px; color: #8a6d1a; background: #fff9e8;
+  border-left: 4px solid #f6c453; border-radius: 8px; padding: 10px 13px; line-height: 1.7; }
+
+/* 决策点规划 */
+.plan-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 860px) { .plan-grid { grid-template-columns: 1fr; } }
+.plan-card { border: 1px solid #e3e9e1; border-radius: 12px; padding: 16px; background: #fbfdfa; }
+.plan-card h4 { font-size: 14px; color: #24502a; display: flex; align-items: center; gap: 8px; }
+.plan-card .meta { font-size: 12.5px; color: #6b7a68; margin-top: 8px; line-height: 1.8; }
+.plan-card .meta b { color: #23301f; }
+.plan-card .pre { margin-top: 8px; font-size: 12px; color: #8a6d1a; background: #fff9e8;
+  border-radius: 8px; padding: 8px 11px; line-height: 1.7; }
+.plan-steps { counter-reset: step; margin-top: 6px; }
+.plan-steps li { list-style: none; position: relative; padding: 8px 0 8px 40px; font-size: 13px; color: #3c4a38; }
+.plan-steps li::before { counter-increment: step; content: counter(step); position: absolute; left: 0; top: 7px;
+  width: 26px; height: 26px; border-radius: 50%; background: #e8f5e9; color: #2e7d32;
+  display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; }
+.spinner { display: inline-block; width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid #cfe3cf; border-top-color: #2d5a2d; animation: spin .8s linear infinite;
+  vertical-align: -2px; margin-right: 6px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="header">
+  <div>
+    <h1>EdgeJev 本地类型化决策 <span class="badge">选择题 · 离线 · CPU</span></h1>
+    <p>给定一段状态文本 → 在系统预设的固定选项集上做「选择题」（choice / score / noul），
+       把理解与分流变成可枚举、可校准、可审计的决策；模型不生成语言，也不做自由问答。</p>
+  </div>
+  <nav class="nav">
+    <a href="/">首页</a>
+    <a href="/eval">现场测评</a>
+    <a href="/stream">实时监测</a>
+  </nav>
+</div>
+
+<div class="container">
+  <!-- 定位 + 引擎状态 -->
+  <div class="panel">
+    <div class="role-bar">
+      <span class="icon">🧭</span>
+      <div>
+        <b>模型定位：</b>在固定选项集上做选择题的本地决策器 —— 用于「指令理解」与「研判/分流」；
+        <span class="no">不提供自由问答式（语言性）决策</span>；
+        与硬件相关的动作仍由规则闸门（片区白名单 / 时长钳制 / 危险词 / 人工确认）主导。
+      </div>
+    </div>
+    <div class="status-bar" style="margin-top:14px;">
+      <span class="chip off" id="engineChip"><span class="dot"></span>检测中…</span>
+      <div class="kv" id="engineKv"></div>
+      <span style="flex:1"></span>
+      <button class="btn ghost" id="btnRefresh" style="padding:8px 16px;font-size:13px;">↻ 重新探测</button>
+    </div>
+    <div class="muted" id="engineHint" style="margin-top:8px;"></div>
+  </div>
+
+  <!-- 决策点 -->
+  <div class="panel">
+    <div class="tabs">
+      <div class="tab active" data-pane="cmd">① 喷洒指令解析<span class="st active">已接入</span></div>
+      <div class="tab" data-pane="advise">② 虫情处置研判<span class="st experimental">实验性</span></div>
+      <div class="tab" data-pane="plan">③ 决策点规划<span class="st planned">规划</span></div>
+    </div>
+
+    <!-- ① 指令解析 -->
+    <div class="pane active" id="pane-cmd">
+      <div class="optset" id="optset-cmd"><div class="head">题面加载中…</div></div>
+      <h3>试跑：输入一句指令</h3>
+      <div class="input-row">
+        <input type="text" id="cmdText" value="给片区A喷3秒" placeholder="例如：把泵关了吧">
+        <button class="btn" id="btnCmd">运行决策</button>
+      </div>
+      <div class="chips" id="cmdSamples"></div>
+      <div class="muted" style="margin-top:8px;">安全边界不变：上方是"模型怎么看"，下方"最终口径"才是系统采用的结论
+        —— 仍需人工确认 + 片区白名单 + 时长钳制。</div>
+      <div id="cmdResult"></div>
+    </div>
+
+    <!-- ② 虫情研判 -->
+    <div class="pane" id="pane-advise">
+      <div class="optset" id="optset-advise"><div class="head">题面加载中…</div></div>
+      <h3>试跑：给一份检测结果</h3>
+      <div class="chips" id="adviseSamples"></div>
+      <div class="input-row" style="margin-top:10px;">
+        <textarea id="adviseText" spellcheck="false"></textarea>
+      </div>
+      <div class="input-row" style="margin-top:10px;">
+        <button class="btn" id="btnAdvise">运行决策</button>
+        <button class="btn ghost" id="btnAdviseLast">用最近一次检测结果</button>
+      </div>
+      <div class="note-box">🧪 实验性：模型对自造研判问题属零样本（实测见 docs/edgejev.md），输出仅作参考信号；
+        自动联动与风险分级仍按 SPRAY.risk_map 的既有口径执行，不被本页结论改动。</div>
+      <div id="adviseResult"></div>
+    </div>
+
+    <!-- ③ 决策点规划 -->
+    <div class="pane" id="pane-plan">
+      <h3>这部分怎么用：只做选择题，不做自由问答</h3>
+      <div class="optset" style="border-style:solid;">
+        <div class="head">规划原则 <span class="hint">（新增决策点的准入标准）</span></div>
+        <ul class="plan-steps">
+          <li>每个决策点 = <b>一段固定的状态输入</b> + <b>一组写死的选项集</b>，模型只负责"选"；选项集随 决策点定义 一起评审。</li>
+          <li>先在 <b class="mono">scripts/edge_probes/</b> 用真实语料校准（对照集/阈值），<b>达标才接入</b>系统链路。</li>
+          <li>接入后必须绑定明确的消费方与边界：要么像指令解析一样走安全闸门，要么只作"参考信号"（显式标注）。</li>
+          <li>不建设"通用问答/任意提问"入口 —— 自造问题的零样本准确率不可靠，也偏离"类型化选择题"的定位。</li>
+        </ul>
+      </div>
+      <div class="plan-grid" id="planGrid"></div>
+      <div class="muted" style="margin-top:14px;">开发新决策点时：先用 <code class="mono">POST /api/edge/systemone</code>（低级协议接口，页面不暴露）
+        试跑与校准，再定义进 <code class="mono">app/edge_engine.decision_points()</code> 并接入。</div>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+async function post(path, body) {
+  const r = await fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body || {})});
+  return await r.json();
+}
+function barRows(probs, topKey) {
+  const entries = Object.entries(probs || {}).sort((a, b) => b[1] - a[1]);
+  return entries.map(([k, v]) => `
+    <div class="row ${k === topKey ? 'top' : ''}">
+      <span class="k">${esc(k)}</span>
+      <span class="bar"><span class="fill" data-w="${(v * 100).toFixed(1)}"></span></span>
+      <span class="v">${(v * 100).toFixed(1)}%</span>
+    </div>`).join('');
+}
+function growBars(root) {
+  requestAnimationFrame(() => {
+    (root.querySelectorAll('.fill[data-w]') || []).forEach((f) => { f.style.width = f.dataset.w + '%'; });
+  });
+}
+const fmtMs = (ms) => (ms == null ? '—' : (ms < 1 ? '<1' : Math.round(ms)) + ' ms');
+
+/* ---------------- 题面（选项集）渲染：来自 /api/edge/decision_points 单一事实源 ---------------- */
+const Q_LABEL = {intent: '意图', group: '片区', seconds: '时长档位', unsafe: '危险度',
+                 action: '处置动作', urgency: '紧迫度', spray_needed: '是否达喷洒线',
+                 route: '问题类别', channel: '处理通道', urgent: '紧急度'};
+const OPT_GLOSS = {
+  spray: '开始/执行喷洒', stop: '停止喷洒', other: '与喷洒无关',
+  g1: '片区A', g2: '片区B', all: '全体片区', none: '未提及',
+  true: '成立 · 是', false: '不成立 · 否',
+  watch: '持续观察', pest_qa: '库内植保问答', device: '设备操作', off_topic: '超纲/闲聊',
+  pesticide: '植保防治', repair: '设备检修', irrigation: '灌溉管理',
+};
+// 同名选项在不同题目里含义不同（如 other/none/spray 各题含义不同，按题目覆盖）
+const OPT_GLOSS_BY_Q = {
+  action: {spray: '立即安排喷洒', watch: '提高监测频率', none: '无需处理'},
+  spray_needed: {true: '已达到喷洒线', false: '未达到'},
+  channel: {other: '其他'},
+  route: {},
+};
+const TYPE_NAME = {choice: 'choice·单选', score: 'score·档位', noul: 'noul·是否'};
+
+function renderOptset(el, point) {
+  const rows = Object.entries(point.questions || {}).map(([qid, q]) => {
+    let opts = '';
+    if (q.type === 'choice') {
+      const g = OPT_GLOSS_BY_Q[qid] || {};
+      opts = Object.entries(q.criteria || {}).map(([k, v]) =>
+        `<span class="opt"><b>${esc(k)}</b><span class="g">${esc(g[k] || OPT_GLOSS[k] || '')}</span></span>`).join('');
+    } else if (q.type === 'score') {
+      opts = (q.criteria || []).map((c, i) =>
+        `<span class="opt"><b>档位${i + 1}</b><span class="g">${esc(c)}</span></span>`).join('');
+    } else {
+      opts = `<span class="opt"><b>true</b><span class="g">成立</span></span>
+              <span class="opt"><b>false</b><span class="g">不成立</span></span>`;
+    }
+    return `<div class="qrow">
+      <div class="qname">${esc(Q_LABEL[qid] || qid)}<span class="t">${TYPE_NAME[q.type] || q.type}</span></div>
+      <div class="opts">${opts}</div></div>`;
+  }).join('');
+  el.innerHTML = `<div class="head">本题的固定选项集 <span class="hint">（系统预设 · ${esc(point.state_hint || '')}）
+    · 模型只负责在这些选项中"选"</span></div>${rows}`;
+}
+
+let POINTS = [];
+async function loadPoints() {
+  try {
+    const r = await (await fetch('/api/edge/decision_points')).json();
+    POINTS = (r && r.points) || [];
+  } catch (e) { POINTS = []; }
+  const cmd = POINTS.find((p) => p.id === 'command');
+  const det = POINTS.find((p) => p.id === 'detection');
+  if (cmd) renderOptset($('optset-cmd'), cmd);
+  if (det) renderOptset($('optset-advise'), det);
+  renderPlan(POINTS.filter((p) => p.status === 'planned'));
+}
+
+function renderPlan(planned) {
+  $('planGrid').innerHTML = planned.map((p) => `
+    <div class="plan-card">
+      <h4>${esc(p.name)} <span class="st planned" style="font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px;">规划中</span></h4>
+      <div class="meta"><b>输入状态：</b>${esc(p.state_hint)}<br><b>预期消费方：</b>${esc(p.used_by)}</div>
+      <div class="optset" style="margin:10px 0 0;padding:10px 12px;" data-point="${esc(p.id)}"></div>
+      <div class="pre">⏳ 前置条件：${esc(p.prerequisites || '')}</div>
+    </div>`).join('');
+  planned.forEach((p) => {
+    const el = $('planGrid').querySelector(`.optset[data-point="${p.id}"]`);
+    if (el) renderOptset(el, p);
+  });
+}
+
+/* ---------------- 引擎状态 ---------------- */
+async function refreshStatus(refresh) {
+  const chip = $('engineChip');
+  chip.className = 'chip off';
+  chip.innerHTML = '<span class="dot"></span>检测中…';
+  try {
+    const s = await (await fetch('/api/edge/status' + (refresh ? '?refresh=true' : ''))).json();
+    if (s.available) {
+      chip.className = 'chip on';
+      chip.innerHTML = '<span class="dot"></span>引擎在线';
+      $('engineKv').innerHTML = [
+        `形态 <b>${esc(s.mode)}</b>`,
+        s.model_name ? `模型 <b>${esc(s.model_name)}</b>` : '',
+        s.backend ? `后端 <b>${esc(s.backend)}</b>` : '',
+        s.precision ? `精度 <b>${esc(s.precision)}</b>` : '',
+        s.provider ? `运行 <b>${esc(s.provider)}</b>` : '',
+        `累计决策 <b>${s.calls}</b>`,
+        `平均延迟 <b>${fmtMs(s.avg_ms)}</b>`,
+      ].filter(Boolean).join('');
+      $('engineHint').textContent = '';
+    } else {
+      chip.className = 'chip off';
+      chip.innerHTML = '<span class="dot"></span>未部署';
+      $('engineKv').innerHTML = `<span>模型目录 <b>${esc(s.model_dir)}</b></span>`;
+      $('engineHint').innerHTML = (s.hint || s.last_error || '') +
+        ' &nbsp;—— 构建：<code>python scripts/build_edge_model.py</code>，或启动本地服务后填 EDGE.base_url。';
+    }
+  } catch (e) {
+    chip.className = 'chip off';
+    chip.innerHTML = '<span class="dot"></span>状态获取失败';
+  }
+}
+$('btnRefresh').addEventListener('click', () => refreshStatus(true));
+
+/* ---------------- ① 指令解析 ---------------- */
+const CMD_SAMPLES = ['给片区A喷3秒', '给2号片区喷5秒', '停止所有喷洒', '把泵关了吧',
+  '别让它喷了', '一直喷不要停', '加大剂量喷洒', '今天天气怎么样'];
+$('cmdSamples').innerHTML = CMD_SAMPLES.map((s) => `<span class="c">${esc(s)}</span>`).join('');
+$('cmdSamples').addEventListener('click', (e) => {
+  if (e.target.classList.contains('c')) { $('cmdText').value = e.target.textContent; runCmd(); }
+});
+$('btnCmd').addEventListener('click', runCmd);
+$('cmdText').addEventListener('keydown', (e) => { if (e.key === 'Enter') runCmd(); });
+
+async function runCmd() {
+  const text = $('cmdText').value.trim();
+  if (!text) return;
+  const box = $('cmdResult');
+  box.innerHTML = '<div class="empty-hint"><span class="spinner"></span>EdgeJev 决策中…</div>';
+  const r = await post('/api/edge/parse_command', {text});
+  if (!r.success) {
+    box.innerHTML = `<div class="empty-hint">决策失败：${esc(r.error || (r.available === false ? '引擎未部署' : '未知错误'))}</div>`;
+    if (r.available === false) refreshStatus(true);
+    return;
+  }
+  const comb = r.combined || r.parsed || {};
+  const rule = r.rule || {};
+  const edge = r.parsed || {};
+  const answers = r.answers || {};
+  const intA = answers.intent || {};
+  const grpA = answers.group || {};
+  const bad = comb.valid === false;
+  box.innerHTML = `
+    <div class="results">
+      <div class="res-card">
+        <h3>最终口径（系统采用）<span class="eng comb">规则优先 + 兜底</span>
+          <span class="latency">⚡ ${fmtMs(r.latency_ms)}</span></h3>
+        <div class="verdict-line">
+          <span class="badge ${bad ? 'badge-bad' : 'badge-ok'}">${bad ? '不执行' : '可确认执行'}</span>
+          <span style="margin-left:8px">${esc(comb.reply || '')}</span>
+        </div>
+        <table class="cmp">
+          <tr><th>意图</th><th>片区</th><th>时长</th><th>来源</th></tr>
+          <tr class="mono">
+            <td>${esc(comb.intent || '-')}</td><td>${esc(comb.group || '-')}</td>
+            <td>${comb.duration == null ? '-' : esc(comb.duration) + ' 秒'}</td>
+            <td>${esc(comb.engine || 'rule')}${comb.edge_confidence ? '（置信 ' + comb.edge_confidence.intent + '）' : ''}</td>
+          </tr>
+        </table>
+      </div>
+      <div class="res-card">
+        <h3>EdgeJev 的选择<span class="eng edge">模型输出 · 选择题</span></h3>
+        <div class="verdict-line"><span class="lbl">意图</span> <b>${esc(intA.choice || '-')}</b>
+          · <span class="lbl">片区</span> <b>${esc(grpA.choice || '-')}</b></div>
+        <div class="prob">${barRows(intA.probabilities, intA.choice)}</div>
+        <details><summary>原始 answers JSON（四题的选择与概率）</summary>
+          <pre class="raw">${esc(JSON.stringify(answers, null, 2))}</pre></details>
+      </div>
+    </div>
+    <div class="res-card" style="margin-top:14px;">
+      <h3>规则解析对照<span class="eng rule">确定性正则</span></h3>
+      <table class="cmp">
+        <tr><th>意图</th><th>片区</th><th>时长</th><th>有效</th><th>说明</th></tr>
+        <tr class="mono">
+          <td>${esc(rule.intent || '-')}</td><td>${esc(rule.group || '-')}</td>
+          <td>${rule.duration == null ? '-' : esc(rule.duration) + ' 秒'}</td>
+          <td>${rule.valid ? '✓' : '✗'}</td><td>${esc(rule.reply || '')}</td>
+        </tr>
+      </table>
+      <div class="muted" style="margin-top:8px;">规则负责确定性（数字/片区关键词），EdgeJev 负责改写与口语（规则拿不准时兜底）；
+        安全闸门（危险词/白名单/钳制）由服务端统一执行。</div>
+    </div>`;
+  growBars(box);
+}
+
+/* ---------------- ② 虫情研判 ---------------- */
+const ADVISE_SAMPLES = [
+  {label: '高风险：蚜虫爆发', dets: [{chinese_name: '蚜虫', confidence: 0.88}, {chinese_name: '蚜虫', confidence: 0.79}, {chinese_name: '蝗虫', confidence: 0.66}], risk: {level: '高风险'}},
+  {label: '中风险：少量玉米螟', dets: [{chinese_name: '玉米螟', confidence: 0.55}], risk: {level: '中风险'}},
+  {label: '低风险：零星目标', dets: [{chinese_name: '跳甲', confidence: 0.41}], risk: {level: '低风险'}},
+  {label: '无目标', dets: [], risk: {level: '无风险'}},
+];
+$('adviseSamples').innerHTML = ADVISE_SAMPLES.map((s, i) => `<span class="c" data-i="${i}">${esc(s.label)}</span>`).join('');
+$('adviseSamples').addEventListener('click', (e) => {
+  const i = e.target.dataset && e.target.dataset.i;
+  if (i == null) return;
+  const s = ADVISE_SAMPLES[+i];
+  $('adviseText').value = JSON.stringify({detections: s.dets, risk: s.risk}, null, 1);
+  runAdvise();
+});
+$('adviseText').value = JSON.stringify({detections: ADVISE_SAMPLES[0].dets, risk: ADVISE_SAMPLES[0].risk}, null, 1);
+$('btnAdvise').addEventListener('click', runAdvise);
+$('btnAdviseLast').addEventListener('click', async () => {
+  $('adviseText').value = '（使用最近一次检测结果）';
+  await runAdvise(true);
+});
+
+async function runAdvise(useLast) {
+  const box = $('adviseResult');
+  let payload = {};
+  if (!useLast) {
+    try { payload = JSON.parse($('adviseText').value || '{}'); }
+    catch (e) { box.innerHTML = `<div class="empty-hint">JSON 解析失败：${esc(e.message)}</div>`; return; }
+  }
+  box.innerHTML = '<div class="empty-hint"><span class="spinner"></span>研判中…</div>';
+  const r = await post('/api/edge/advise', payload);
+  if (!r.success) {
+    box.innerHTML = `<div class="empty-hint">研判失败：${esc(r.error || '（引擎未部署？）')}</div>`;
+    return;
+  }
+  const a = (r.answers || {});
+  const act = a.action || {}, urg = a.urgency || {}, need = a.spray_needed || {};
+  const ACTION_CN = {spray: '立即安排喷洒', watch: '提高监测频率', none: '无需处理'};
+  box.innerHTML = `
+    <div class="advice-grid">
+      <div class="advice-card"><div class="t">处置动作（选择题）</div>
+        <div class="v">${esc(ACTION_CN[act.choice] || act.choice || '—')}</div>
+        <div class="prob">${barRows(act.probabilities, act.choice)}</div></div>
+      <div class="advice-card"><div class="t">紧迫度（档位题）</div>
+        <div class="v">${fmtUrgency(urg)}</div>
+        <div class="m">期望档位 ${(urg.score || 0).toFixed(2)} / ${Math.max(0, Object.keys(urg.legend || {}).length - 1)}</div>
+        <div class="prob">${barRows(urg.probabilities, String(Math.round(urg.score || 0)))}</div></div>
+      <div class="advice-card"><div class="t">达到喷洒线？（是否题）</div>
+        <div class="v" style="color:${(need.noul || 0) >= 0.5 ? '#c0392b' : '#2e7d32'}">${(need.noul || 0) >= 0.5 ? '达到' : '未达到'}</div>
+        <div class="m">P(true) = ${((need.noul || 0) * 100).toFixed(1)}%</div></div>
+    </div>
+    <div class="note-box">⚖️ ${esc(r.note || '类型化决策结果仅供参考')} · 输入状态：${esc(r.state_text || '')}</div>`;
+  growBars(box);
+}
+function fmtUrgency(s) {
+  const lv = ['很低', '较低', '中等', '较高', '很高'];
+  return esc(lv[Math.min(4, Math.max(0, Math.round((s && s.score) || 0)))] || '中等');
+}
+
+/* ---------------- 标签页 ---------------- */
+document.querySelectorAll('.tab').forEach((t) => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach((x) => x.classList.remove('active'));
+    document.querySelectorAll('.pane').forEach((x) => x.classList.remove('active'));
+    t.classList.add('active');
+    $('pane-' + t.dataset.pane).classList.add('active');
+  });
+});
+
+refreshStatus(false);
+loadPoints();
+</script>
+</body>
+</html>

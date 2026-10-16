@@ -75,3 +75,8 @@ uvicorn>=0.20.0
 xlwt>=1.3.0
 zhipuai==2.1.5.20250801
 zipp==3.20.2
+
+# ---- EdgeJev 本地类型化决策（backend=laya 的进程内运行时；见 docs/edgejev.md）----
+# 模型本身用 scripts/build_edge_model.py 构建（那一步需要 torch，这里是"跑"的依赖，不需要 torch）
+onnxruntime>=1.17
+tokenizers>=0.15

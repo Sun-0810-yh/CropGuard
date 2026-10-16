@@ -21,6 +21,14 @@
         }
         .header h1 { font-size: 24px; margin-bottom: 5px; }
         .header p { font-size: 14px; opacity: 0.85; }
+        .top-nav { display: flex; justify-content: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+        .top-nav a {
+            color: #e8f5e9; text-decoration: none; font-size: 13px;
+            padding: 7px 15px; border-radius: 999px;
+            border: 1px solid rgba(255,255,255,0.25); transition: all .2s;
+        }
+        .top-nav a:hover { background: rgba(255,255,255,0.14); }
+        .top-nav a.hot { background: rgba(126,231,135,0.2); border-color: rgba(126,231,135,0.5); font-weight: 700; }
         .container { max-width: 1200px; margin: 30px auto; padding: 0 20px; }
         .upload-section {
             background: white;
@@ -142,6 +150,12 @@
     <div class="header">
         <h1>CropGuard - 农作物害虫智能检测系统</h1>
         <p>基于 YOLOv8 + SE注意力机制 | 27类农业害虫识别 | AI防治建议</p>
+        <div class="top-nav">
+            <a href="/">🏠 检测首页</a>
+            <a href="/eval" class="hot">🏁 现场测评（20 样本 / 180 秒）</a>
+            <a href="/edge">⚡ EdgeJev 本地决策</a>
+            <a href="/stream">📹 实时监测</a>
+        </div>
     </div>
 
     <div class="container">
@@ -205,10 +219,14 @@
         <div class="api-section">
             <h3>API 接口</h3>
             <p style="margin-top:10px;">除了本页面，您也可以直接调用 REST API:</p>
+            <p style="margin:8px 0;"><a href="/eval" style="color:#2d5a2d;font-weight:bold;">打开现场测评页 /eval</a>（20 样本 / 180 秒，动效计时 + 评委判分 + 报告导出，与 GUI 同口径）</p>
+            <p style="margin:8px 0;"><a href="/edge" style="color:#2d5a2d;font-weight:bold;">打开 EdgeJev 本地决策 /edge</a>（选择题式决策点：指令解析对照 / 虫情研判 / 决策点规划）</p>
             <p style="margin:8px 0;"><a href="/stream" style="color:#2d5a2d;font-weight:bold;">打开移动端实时监测页 /stream</a>（实时画面 + 喷淋联动）</p>
             <p style="margin:8px 0;"><code>POST /api/detect</code> - 上传图片检测 (multipart/form-data, field: <code>file</code>)</p>
             <p style="margin:8px 0;"><code>POST /api/detect_b64</code> - Base64图片检测 (JSON: <code>{"image": "base64..."}</code>)</p>
             <p style="margin:8px 0;"><code>POST /api/spray</code> - 手动喷淋 (JSON: <code>{"group":"all","duration":2}</code>)</p>
+            <p style="margin:8px 0;"><code>GET /api/edge/status</code> · <code>GET /api/edge/decision_points</code> · <code>POST /api/edge/parse_command</code> · <code>POST /api/edge/advise</code> - EdgeJev 选择题式决策点</p>
+            <p style="margin:8px 0;"><code>GET /api/eval/config</code> · <code>POST /api/eval/score</code> · <code>POST /api/eval/report</code> - 现场测评口径与报告</p>
             <p style="margin:8px 0;"><code>GET /api/history</code> - 联动/喷淋历史</p>
             <p style="margin:8px 0;"><code>WS /ws/stream</code> - 摄像头实时流</p>
             <p style="margin:8px 0;"><code>GET /api/health</code> - 健康检查</p>

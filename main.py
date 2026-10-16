@@ -27,6 +27,9 @@ from llm import knowledge_base
 from feedback.feedback import Feedback
 from feedback.tts import TTSEngine
 
+# 现场评分口径：GUI 与 Web 测评页（/eval）共用同一份纯函数，避免两处口径漂移
+from app.eval_score import compute_eval_score as _compute_eval_score
+
 
 # ==================== 从配置文件加载全局变量 ====================
 # 注意：这些变量原来只在 `if __name__ == '__main__'` 里赋值，
@@ -138,39 +141,23 @@ def compute_eval_score(records, elapsed, target=None, pps=None,
                        limit=None, time_full=None, penalty=None):
     """按现场评分口径算分（纯函数，便于单测）。
 
+    实现已抽到 `app/eval_score.py`（GUI 与 Web 测评页 /eval 共用同一份口径，
+    防止两处各改一边导致"评委现场核对时两个数字对不上"）；这里保留同名包装，
+    把 config 的 EVAL 段作为默认值传入。
+
     准确度 = min(正确数, target) × pps
     时效性 = max(0, time_full − max(0, 用时 − limit) × penalty)   # 扣完为止
     总分   = 准确度 + 时效性
 
     「未评判」不计入正确 —— 漏判只会少分，不会被误判成对。
     """
-    target = EVAL_TARGET if target is None else target
-    pps = EVAL_POINTS_PER_SAMPLE if pps is None else pps
-    limit = EVAL_TIME_LIMIT if limit is None else limit
-    time_full = EVAL_TIME_FULL if time_full is None else time_full
-    penalty = EVAL_OVERTIME_PENALTY if penalty is None else penalty
-
-    records = list(records or [])
-    total = len(records)
-    judged = sum(1 for r in records if (r or {}).get('verdict'))
-    correct = sum(1 for r in records if (r or {}).get('verdict') == '正确')
-
-    acc = min(correct, target) * pps
-    elapsed = max(0.0, float(elapsed or 0.0))
-    over = max(0.0, elapsed - limit)
-    time_score = max(0.0, time_full - over * penalty)
-
-    return {
-        'total': total,
-        'judged': judged,
-        'correct': correct,
-        'acc': round(acc, 1),
-        'elapsed': round(elapsed, 1),
-        'over': round(over, 1),
-        'time_score': round(time_score, 1),
-        'score': round(acc + time_score, 1),
-        'finished': total >= target,
-    }
+    return _compute_eval_score(
+        records, elapsed,
+        target=EVAL_TARGET if target is None else target,
+        pps=EVAL_POINTS_PER_SAMPLE if pps is None else pps,
+        limit=EVAL_TIME_LIMIT if limit is None else limit,
+        time_full=EVAL_TIME_FULL if time_full is None else time_full,
+        penalty=EVAL_OVERTIME_PENALTY if penalty is None else penalty)
 
 
 # ==================== 模型 / 推理参数（模块级，import 时也可用） ====================

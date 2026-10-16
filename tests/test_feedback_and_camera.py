@@ -43,11 +43,14 @@ def fake_engine():
 
     注意：TTSEngine 初始化时会用一句空串做"真链路校验"，
     所以这里先丢掉那条记录，让用例从干净的 sink 开始。
+
+    2026-10-16：`_build_backend` 的签名与 tts.py 的 BackendRegistry 对齐
+    （prefer/rate/volume/selftest），假后端按当前契约返回 (backend, name, errors)。
     """
     sink = []
     original = tts_mod._build_backend
 
-    def _build(prefer='auto'):
+    def _build(prefer='auto', rate=180, volume=1.0, selftest=True):
         return _FakeBackend(sink), [], []
 
     tts_mod._build_backend = _build
