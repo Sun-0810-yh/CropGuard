@@ -3,7 +3,7 @@
 // 实时档把手机画面压缩成 JPEG 二进制帧经 /ws/phone 上传，服务器只回 JSON，框在本地叠加。
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { api, wsUrl, type DetectResult, type Detection, type Risk } from '../../lib/api'
-import { parseAdvice, riskKey, sortByConf, timeOf } from '../../lib/format'
+import { latinName, parseAdvice, riskKey, sortByConf, timeOf } from '../../lib/format'
 import { setChatContext } from '../../composables/chat'
 import { toast, useStation } from '../../composables/station'
 import DetectionStage from '../../components/DetectionStage.vue'
@@ -185,7 +185,7 @@ const boxes = computed(() => {
   const { w, h } = sent.value
   if (!w || !h) return []
   return liveDets.value.map((d) => ({
-    label: `${d.chinese_name} ${d.confidence.toFixed(2)}`,
+    label: `${d.label_en || latinName(d.class_name)} ${d.confidence.toFixed(2)}`,
     style: {
       left: `${(d.bbox[0] / w) * 100}%`, top: `${(d.bbox[1] / h) * 100}%`,
       width: `${((d.bbox[2] - d.bbox[0]) / w) * 100}%`, height: `${((d.bbox[3] - d.bbox[1]) / h) * 100}%`,

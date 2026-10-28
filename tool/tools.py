@@ -2,6 +2,12 @@ import cv2
 import xlwt
 
 
+def box_label(cls_name):
+    """检测框上显示的英文名：corn_borer → Corn borer（只管框上的字，列表/播报/备案中文名不受影响）。"""
+    s = str(cls_name or '').replace('_', ' ').strip()
+    return s[:1].upper() + s[1:]
+
+
 def result_info_format(result_info, box, score, cls_name):
     '''
         格式组合
@@ -136,9 +142,9 @@ def draw_info(frame, results):
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness)
 
         try:
-            text = f'{cls_name} {float(conf):.2f}'
+            text = f'{box_label(cls_name)} {float(conf):.2f}'
         except (TypeError, ValueError):
-            text = f'{cls_name} {conf}'
+            text = f'{box_label(cls_name)} {conf}'
         (tw, th), _ = cv2.getTextSize(text, font, font_scale, thickness)
 
         # 标签默认贴在框上沿；顶到画面外就改画到框内侧，避免被裁掉

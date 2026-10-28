@@ -97,6 +97,29 @@ python main.py                                           # PyQt5 GUI（指挥台
 - 本机验证坑：vendored ultralytics 需 `np.trapz` 兼容补丁、`check_font` 容错（**别回滚**）；
   `scripts/*.py` 要 `sys.path.insert(0, ROOT)`。
 
+## 实体标本微调（2026-10-28）
+- 起因：原模型认不出手里的昆虫实体模型（11 种，各约 60 张手机照：3 个俯角 × 开/关闪光）。
+  基线（原模型，标本验证图）：有框 64/89、类对 21/89。
+- 标本 → 27 类就近映射在 `scripts/build_specimen_dataset.py` 的 `FOLDER_TO_CLASS`（**不改备案中文名**，只决定训练标签）。
+  ⚠️ 那批照片「蚂蚱」与「蜡螟蛾」两个文件夹**装反了**，映射按照片实际内容写；
+  第一次训练没发现、学反了，产物留在 `runs/train/pest27_specimen_swapped_bad/`（别用）。
+- 自动框：先用原模型最高分框，没框退回背景色差分割；框住大半画面且贴 3 条边（=框到培养皿）→ 只在中央重分割。
+  训练前必看 `datasets/specimen_mix/review/`。验证集 = 每个文件夹按时间最后 15% 连拍（防连拍近似帧泄漏）。
+- 混入旧数据每类 80 张（排除 `PRINT_*` 污染副本）+ 旧验证集全量，防遗忘。
+- 训练：`scripts/train_specimen.py`（从 pest27_final4 续训，freeze=10，batch 32，workers 8）；
+  评估：`scripts/eval_specimen.py --weights a.pt b.pt`（按文件夹对比有框/类对）。
+- GPU 训练环境：`C:\Users\smile\Documents\cg_train_venv`（torch 2.11 cu128；**南大镜像** `mirrors.nju.edu.cn/pytorch/whl/cu128` ~10MB/s，
+  官方源/阿里云 ~0.1MB/s；清华源只有 CPU 版）。临时脚本用多进程读图必须写 `if __name__ == '__main__'`，否则 Windows 下卡死。
+- ONNX：新版 torch 导出会拆出 `best.onnx.data`，平台只收单文件 → `onnx.load` 后 `save_as_external_data=False` 合并。
+
+## 检测框英文名 + 神经语音（2026-10-28）
+- 框上的字一律英文（`tool.tools.box_label`：corn_borer → Corn borer）；后端检测结果多一个 `label_en` 字段，
+  网页/手机页/旧 mobile.js 叠框都用它。列表、侧栏、问答仍是备案中文名。
+- 语音：`feedback/neural_voice.py` + tts 后端 `neural`（auto 第一顺位）= edge-tts 晓晓音色，**按句预合成**到
+  `feedback/voice_cache/`（随仓库提交），离线用 Windows MCI 放 mp3；缓存外的句子联网现合成、断网退回 System.Speech。
+- **播报不念害虫名**（用户要求），文案在 `feedback/feedback.py::_speak_text`，一共 21 句；
+  改文案后跑 `python scripts/build_voice_cache.py --prune`（需联网）。
+
 ## 现场硬件
 - ESP32 ×3（2 用 1 备）+ 光耦继电器（低电平触发）+ 5V 超声雾化片 ×2；`ESP32/` PlatformIO，8 env。
 - 喷淋走 HTTP 方案甲：`config/configs.yaml` 的 `SPRAY.http_targets`，每项带 `protocol: json|mist`。

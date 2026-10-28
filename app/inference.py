@@ -13,8 +13,9 @@ from datetime import datetime
 import cv2
 import numpy as np
 
+from feedback.feedback import spray_phrase
 from llm import knowledge_base
-from tool.tools import format_data, draw_info, assess_risk
+from tool.tools import format_data, draw_info, assess_risk, box_label
 from app.state import (
     yolo_model, device, imgsz, conf_thres, chinese_name,
     spray, feedback, cfg_spray, cfg_camera, cfg_cameras,
@@ -57,6 +58,7 @@ def _predict_and_format(img, conf=None, draw=True):
         detections.append({
             "class_name": cls_name,
             "chinese_name": cn_name,
+            "label_en": box_label(cls_name),
             "confidence": round(r[1], 4),
             "bbox": [round(x, 1) for x in r[2]],
         })
@@ -154,8 +156,7 @@ def _linkage(risk_level, detections, zone_group=None):
 
     # 语音播报：文案要与真实动作一致（"已给片区A喷淋3秒"），先算好再播
     if sprayed:
-        zone_txt = '全体片区' if (spray_group or 'all') == 'all' else f'片区{spray_group}'
-        spray_info = f'已给{zone_txt}喷淋{int(duration)}秒'
+        spray_info = spray_phrase(spray_group or 'all', duration)
     else:
         spray_info = ''
     try:

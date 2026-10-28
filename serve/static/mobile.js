@@ -237,7 +237,7 @@ function drawBoxesOn(ctx, dets, frameW, frameH, rect, lineWidth, fontPx) {
     ctx.strokeStyle = cssRgb(color);
     ctx.strokeRect(b.x, b.y, b.w, b.h);
 
-    const text = String(d.chinese_name || d.class_name || '') +
+    const text = String(d.label_en || d.class_name || '') +
                  ' ' + (Number(d.confidence) || 0).toFixed(2);
     ctx.font = 'bold ' + fontPx + 'px -apple-system,"Microsoft YaHei",sans-serif';
     const tw = ctx.measureText(text).width;

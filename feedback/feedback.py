@@ -38,18 +38,26 @@ RISK_LED = {
 
 
 def _speak_text(risk_level, detected_names, spray_info=''):
-    """根据风险等级、检测结果与已执行动作生成播报文案。"""
-    names = '、'.join(detected_names) if detected_names else '未知害虫'
-    tail = ''
-    if spray_info:
-        tail = f'，{spray_info}'
+    """根据风险等级与已执行动作生成播报文案。
+
+    口语化、一句一个意思（以句号结尾）；**不念害虫名**（2026-10-28 用户要求：只报"发现害虫"），
+    所以句子是有限集合，全部提前合成成神经语音（scripts/build_voice_cache.py），现场离线也是真人声。
+    detected_names 保留参数只为兼容调用方，不进文案。
+    """
+    tail = f'{spray_info.rstrip("。")}。' if spray_info else ''
     if risk_level == '高风险':
-        return f'警告，检测到{names}，风险等级高，请立即采取防治措施{tail}'
+        return '注意啦，这里发现了害虫，数量还不少。' + (tail or '建议马上处理一下。')
     if risk_level == '中风险':
-        return f'提示，检测到{names}，风险等级中，建议及时防治{tail}'
+        return '发现了害虫，建议尽快防治一下。' + tail
     if risk_level == '低风险':
-        return f'检测到{names}，风险等级低，建议持续观察{tail}'
-    return '未检测到害虫，作物生长状况良好'
+        return '看到了少量害虫，先观察着就行。' + tail
+    return '没发现害虫，庄稼长得挺好。'
+
+
+def spray_phrase(group, duration):
+    """喷淋动作的播报句：'我已经给A区喷了3秒药'（与 _speak_text 的缓存口径一致）。"""
+    zone = {'all': '所有区域', '': '所有区域', None: '所有区域', 'g1': 'A区', 'g2': 'B区'}.get(group, f'{group}区')
+    return f'我已经给{zone}喷了{int(duration)}秒药'
 
 
 class Feedback:
@@ -97,7 +105,7 @@ class Feedback:
     def trigger(self, risk_level, detected_names, risk_detail='', spray_info=''):
         """检测完成后触发反馈。
 
-        spray_info: 例如 '已给片区A喷淋3秒'，会拼进播报文案（可选）。
+        spray_info: 例如 '我已经给A区喷了3秒药'（见 spray_phrase），会拼进播报文案（可选）。
         返回是否真的下发了播报（便于调用方做日志/测试）。
         """
         if not self.enabled:

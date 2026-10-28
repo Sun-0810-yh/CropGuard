@@ -1,7 +1,8 @@
 # 模型相关的配置文件
 MODEL:
   # 模型文件
-  WEIGHT: './runs/train/pest27_final4/weights/best.pt'
+  # 2026-10-28 实体标本微调版（scripts/train_specimen.py）；要回退原模型改回 pest27_final4
+  WEIGHT: './runs/train/pest27_specimen/weights/best.pt'
   # 取值 'cpu'、'cuda:0'、'0'、 '1'、 '2'等 cpu代表以cpu进行推理，0代表使用第0块显卡
   DEVICE: 'cuda:0'
   # 阈值
@@ -352,7 +353,8 @@ FEEDBACK:
   #     auto 能自动选到 powershell —— 现场不用手工改配置）
   tts:
     engine: 'auto'
-    rate: 180        # 语速（字/分钟）
+    rate: 150        # 语速（字/分钟）；150≈SAPI 正常语速，想更慢写 130，别超过 170
+    pause_sec: 0.25  # 句与句之间的停顿（秒），让播报有呼吸感
     volume: 1.0      # 音量 0~1
     dedup_sec: 0.5   # 同一句话的去重窗口（秒）
   # "无风险"是否也播报（默认只在从有风险变为无风险时提示一次）

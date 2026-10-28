@@ -68,7 +68,7 @@ cfg_tts = cfg_feedback.get('tts', {}) or {}
 _tts_engine = TTSEngine(
     enabled=bool(cfg_feedback.get('enabled', True)) and str(cfg_tts.get('engine', 'auto')) != 'none',
     engine=str(cfg_tts.get('engine', 'auto') or 'auto'),
-    rate=float(cfg_tts.get('rate', 180) or 180),
+    rate=float(cfg_tts.get('rate', 150) or 150),
     volume=float(cfg_tts.get('volume', 1.0) or 1.0),
     dedup_sec=float(cfg_tts.get('dedup_sec', 0.5) or 0),
 )

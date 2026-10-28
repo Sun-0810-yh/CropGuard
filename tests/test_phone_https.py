@@ -349,12 +349,12 @@ __video.videoWidth = 1280; __video.videoHeight = 720;
 liveSentFrame = {w: 960, h: 540, t0: 0};   // 上传帧尺寸（结果 bbox 的坐标系）
 
 // 960x540 里的 [96,54,192,108] → 400x300 容器（16:9 上下黑边 37.5）应为 [40,60,40,22.5]
-drawDetections([{chinese_name: '蚜虫', class_name: 'aphids', confidence: 0.87,
+drawDetections([{chinese_name: '蚜虫', class_name: 'aphids', label_en: 'Aphids', confidence: 0.87,
                  bbox: [96, 54, 192, 108]}]);
 if (global.__calls.strokeRect.length !== 1)
   throw new Error('应画 1 个框，实际 ' + global.__calls.strokeRect.length);
 chkRect(global.__calls.strokeRect[0], [40, 60, 40, 22.5], '首帧');
-if (!global.__calls.fillText.some(a => String(a[0]).indexOf('蚜虫 0.87') === 0))
+if (!global.__calls.fillText.some(a => String(a[0]).indexOf('Aphids 0.87') === 0))
   throw new Error('标签文字不对：' + JSON.stringify(global.__calls.fillText));
 
 // 没有目标 → 不画框（画布只清空）

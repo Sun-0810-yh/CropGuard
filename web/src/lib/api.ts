@@ -6,6 +6,8 @@ export type RiskLevel = '高风险' | '中风险' | '低风险' | '无风险'
 export interface Detection {
   class_name: string
   chinese_name: string
+  /** 框上显示的英文名（后端 tool.tools.box_label） */
+  label_en?: string
   confidence: number
   bbox: [number, number, number, number]
 }

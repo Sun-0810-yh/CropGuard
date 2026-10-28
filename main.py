@@ -549,7 +549,7 @@ class MyMainWindow(QMainWindow, Ui_MainWindow):
         self.tts = TTSEngine(
             enabled=bool(_fb.get('enabled', True)) and str(_tts_cfg.get('engine', 'auto')) != 'none',
             engine=str(_tts_cfg.get('engine', 'auto') or 'auto'),
-            rate=float(_tts_cfg.get('rate', 180) or 180),
+            rate=float(_tts_cfg.get('rate', 150) or 150),
             volume=float(_tts_cfg.get('volume', 1.0) or 1.0),
             dedup_sec=float(_tts_cfg.get('dedup_sec', 0.5) or 0),
         )

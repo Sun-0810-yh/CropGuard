@@ -3,6 +3,7 @@
 // variant=board：标本衬板（浅色网格底，检测台用）；variant=dark：暗场（实时画面用）。
 import { computed } from 'vue'
 import type { Detection } from '../lib/api'
+import { latinName } from '../lib/format'
 
 const props = withDefaults(defineProps<{
   src?: string | null
@@ -29,7 +30,7 @@ const boxes = computed(() => {
     const top = (y1 / H) * 100
     return {
       i,
-      label: d.chinese_name || d.class_name,
+      label: d.label_en || latinName(d.class_name),
       conf: d.confidence.toFixed(2),
       style: {
         left: `${(x1 / W) * 100}%`,

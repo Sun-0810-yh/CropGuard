@@ -72,3 +72,6 @@ web/node_modules/
 
 # 现场在 /demo 里改的喷淋节点地址（每台机器/每个热点都不同，不入库）
 config/spray_targets.local.json
+
+# 实体标本微调数据集（含手拍照片，不入库；用 scripts/build_specimen_dataset.py 重建）
+datasets/
