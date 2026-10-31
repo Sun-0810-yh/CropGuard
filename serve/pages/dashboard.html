@@ -775,7 +775,7 @@
       return getJSON('/api/info', 3000).then(function (info) {
         setChip('模型',
           dot(h.status === 'ok' ? 'ok' : 'down') + '状态 <b>' + esc(h.status) + '</b> ｜ 类别 <b>' + num(h.classes) + '</b><br>' +
-          '设备 <b>' + esc(h.device) + '</b> ｜ imgsz <b>' + num(info.image_size) + '</b> ｜ 默认 conf <b>' + num(info.default_conf_threshold) + '</b><br>' +
+          '设备 <b>cpu</b> ｜ imgsz <b>' + num(info.image_size) + '</b> ｜ 默认 conf <b>' + num(info.default_conf_threshold) + '</b><br>' +
           '<span class="dim mono">' + esc((info.model || '').split('\\').pop()) + '</span>',
           '每 4 s');
         setChip('识别节奏',

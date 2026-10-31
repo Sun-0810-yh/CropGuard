@@ -411,7 +411,8 @@ function localScore() {
   const used = elapsedSec();
   const cfg = S.cfg || { pps: 1, time_full: 10, penalty: .5, limit: 180, target: 20, acc_full: 20, total_full: 30 };
   const acc = Math.min(correct, cfg.target) * cfg.pps;
-  const ts = Math.max(0, cfg.time_full - Math.max(0, used - cfg.limit) * cfg.penalty);
+  // 与 app/eval_score.py 同口径：拍满 target 张才有时效分
+  const ts = recs.length >= cfg.target ? Math.max(0, cfg.time_full - Math.max(0, used - cfg.limit) * cfg.penalty) : 0;
   return {
     total: recs.length, judged, correct,
     acc: Math.round(acc * 10) / 10,

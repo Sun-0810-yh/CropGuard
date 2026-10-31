@@ -119,7 +119,7 @@ const API = [
         <div class="kv">
           <span>权重</span><span class="mono">{{ state.config?.model || '--' }}</span>
           <span>类别数</span><span class="mono">{{ state.health?.classes ?? '--' }}</span>
-          <span>推理设备</span><span class="mono">{{ state.health?.device ?? '--' }}</span>
+          <span>推理设备</span><span class="mono">{{ state.health ? 'cpu' : '--' }}</span>
           <span>输入尺寸</span><span class="mono">{{ state.config?.imgsz ?? '--' }}</span>
           <span>默认阈值</span><span class="mono">{{ state.config?.conf_default ?? '--' }}</span>
         </div>

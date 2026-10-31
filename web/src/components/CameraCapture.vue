@@ -4,6 +4,8 @@
 // 画面走 /ws/stream（与实时监测同一个实现，见 composables/liveStream.ts）。
 // 规则对齐 GUI：**实时画面本身不计样本**；按下拍照才把当前帧交给检测台，
 // 检出目标才算一条样本（检测台负责落盘快照 + 计时）。
+// data-fly-source：拍照动画的起点（见 lib/fly.ts）。
+// 画面铺满底框（max-height 只是给个足够大的上限，实际高度由宽度和画幅决定）。
 import { ref } from 'vue'
 import { useLiveStream } from '../composables/liveStream'
 import { toast } from '../composables/station'
@@ -11,8 +13,8 @@ import { api } from '../lib/api'
 import DetectionStage from './DetectionStage.vue'
 import Icon from './Icon.vue'
 
-const props = withDefaults(defineProps<{ busy?: boolean; count?: number; target?: number }>(), {
-  busy: false, count: 0, target: 20,
+const props = withDefaults(defineProps<{ busy?: boolean; count?: number; target?: number; full?: boolean }>(), {
+  busy: false, count: 0, target: 20, full: false,
 })
 const emit = defineEmits<{ (e: 'capture', p: { blob: Blob; w: number; h: number }): void }>()
 
@@ -51,15 +53,16 @@ async function restart() {
       </span>
     </div>
 
-    <DetectionStage
-      v-if="frame"
-      :src="frame"
-      :width="size[0]"
-      :height="size[1]"
-      :detections="dets"
-      variant="dark"
-      max-height="min(520px, 56vh)"
-    />
+    <div v-if="frame" data-fly-source>
+      <DetectionStage
+        :src="frame"
+        :width="size[0]"
+        :height="size[1]"
+        :detections="dets"
+        variant="dark"
+        max-height="2000px"
+      />
+    </div>
     <div v-else class="cam-empty">
       <Icon name="live" :size="34" :stroke="1.4" />
       <template v-if="errorMsg">
@@ -78,11 +81,12 @@ async function restart() {
     </div>
 
     <div class="shoot-row">
-      <button type="button" class="btn btn-primary shoot" :disabled="!frame || props.busy" @click="shoot">
+      <button type="button" class="btn btn-primary shoot" :disabled="!frame || props.busy || props.full" @click="shoot">
         <Icon name="camera" :size="18" />
-        <span>{{ props.busy ? '识别中…' : `拍照并记录（${props.count} / ${props.target}）` }}</span>
+        <span>{{ props.full ? `已满 ${props.target} 张` : props.busy ? '识别中…' : `拍照并记录（${props.count} / ${props.target}）` }}</span>
       </button>
-      <span class="shoot-hint">标本摆好后按一下；实时画面本身不计入样本。</span>
+      <span class="shoot-hint">看到框就按；实时画面本身不计入样本。</span>
+      <slot name="actions" />
     </div>
   </div>
 </template>
@@ -106,5 +110,5 @@ async function restart() {
 .cam-warn span { flex: 1; }
 .shoot-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .shoot { min-width: 260px; justify-content: center; padding: 12px 20px; font-size: 15px; }
-.shoot-hint { font-size: 12px; color: var(--ink-3); }
+.shoot-hint { flex: 1 1 auto; font-size: 12px; color: var(--ink-3); }
 </style>

@@ -255,7 +255,7 @@ const LOOP = [
         <div class="status-grid">
           <div class="st">
             <div class="st-h"><span class="dot" :class="state.health ? 'ok' : 'bad'" />识别模型</div>
-            <div class="mono small">{{ state.health ? `${state.health.classes} 类 · ${state.health.device}` : '服务器未连接' }}</div>
+            <div class="mono small">{{ state.health ? `${state.health.classes} 类 · cpu` : '服务器未连接' }}</div>
           </div>
           <div class="st">
             <div class="st-h"><span class="dot" :class="camList.some((c) => c.ok) ? 'ok' : camList.length ? 'bad' : ''" />相机</div>

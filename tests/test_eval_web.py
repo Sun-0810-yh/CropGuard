@@ -31,7 +31,7 @@ def test_rubric_defaults_match_field_caliber():
 @test_case
 def test_score_with_rubric_consistent_with_gui_functions():
     """Web 侧算分必须与 GUI 口径逐值一致（评委会对数字）。"""
-    recs = [{'verdict': '正确'}] * 3 + [{'verdict': '错误'}] + [{'verdict': None}]
+    recs = [{'verdict': '正确'}] * 3 + [{'verdict': '错误'}] + [{'verdict': None}] * 16
     r = es.rubric_from_config({})
     s = es.score_with_rubric(recs, 185.0, r)
     expect = es.compute_eval_score(recs, 185.0, target=20, pps=1.0, limit=180.0,

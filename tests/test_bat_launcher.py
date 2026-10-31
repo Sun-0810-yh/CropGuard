@@ -61,6 +61,16 @@ def test_launcher_opens_demo_page():
 
 
 @test_case
+def test_launchers_use_only_the_gpu_env():
+    """推理环境直接替换成 GPU 版，不提供备选：不能再退回 py -3.14 / CPU。"""
+    for name in ('启动演示系统.bat', '启动评分GUI.bat', '停止演示系统.bat'):
+        src = (ROOT / name).read_text(encoding='utf-8')
+        assert r'torch\venv\Scripts\python.exe' in src, f'{name} 没有用 GPU 环境'
+        assert 'py -3.14' not in src, f'{name} 不应再退回 py -3.14'
+        assert 'CG_DEVICE=cpu' not in src, f'{name} 不应再切 CPU'
+
+
+@test_case
 def test_gitattributes_pins_bat_to_crlf():
     """现场机器多为拷过去的目录，不受 core.autocrlf 影响，靠 .gitattributes 兜底。"""
     ga = ROOT / '.gitattributes'

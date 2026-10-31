@@ -3,19 +3,27 @@
 //
 // 两种模式：
 //   * 评分作业（/eval 或 ?mode=eval）= GUI 的现场流程：标本摆好 → 摄像头实时画面里拍一张
-//     → 识别 → 评委判对错 → 满 20 张停表 → 导出 CSV。计时从第一张"拍下那一刻"开始。
+//     → 后端识别 → 带框快照飞入样本栏 → 满 20 张停表 → 去评测（/eval/review）判对错 → 导出 CSV。
+//     计时从第一张快照落位开始；未检出的不进样本栏；多于 20 张的不计数。
 //   * 自由检测（/）= 上传/拖拽/粘贴/文件夹/视频，随便识别，不判分。
 //
 // 与 GUI 同一套规则（main.py _record_detection）：
 //   · 只有"采集"（拍照/图片/文件夹/显式抓帧）算样本；实时画面与视频连续帧不算；
-//   · **没检出目标不写行**（这里保留缩略图但标记"不计分"，不影响得分）；
+//   · **没检出目标不写行**（评分作业不进样本栏；自由检测保留缩略图并标记"不计分"）；
 //   · 一次采集 = 一条，不做同目标合并；满 20 自动停表。
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, type DetectResult, type EvalRubric, type EvalScore, type LanInfo } from '../lib/api'
+import { api, type DetectResult, type LanInfo } from '../lib/api'
 import { areaRatio, clock, groupLabel, riskKey, sortByConf, timeOf } from '../lib/format'
+import { flyImage } from '../lib/fly'
+import { renderBoxed } from '../lib/boxedImage'
 import { setChatContext } from '../composables/chat'
 import { toast, useStation } from '../composables/station'
+import {
+  b64ToObjectUrl, counts, currentId, doneCount, elapsedSec, enterMode, exportReport, finish, nextSeq, peekSeq,
+  resetSession, reviewId, rubric, running, samples, scheduleScore, score, session, startTimer, started,
+  type Sample, type SampleSource,
+} from '../composables/evalSession'
 import AdviceBody from '../components/AdviceBody.vue'
 import CameraCapture from '../components/CameraCapture.vue'
 import DetectionStage from '../components/DetectionStage.vue'
@@ -23,29 +31,10 @@ import EvalPanel from '../components/EvalPanel.vue'
 import HoldButton from '../components/HoldButton.vue'
 import Icon from '../components/Icon.vue'
 import RiskMeter from '../components/RiskMeter.vue'
+import SampleStrip from '../components/SampleStrip.vue'
 import SpecimenCard from '../components/SpecimenCard.vue'
 
 type InputMode = 'camera' | 'image' | 'folder' | 'video' | 'phone'
-
-interface Sample {
-  id: number
-  no: string
-  name: string
-  url: string
-  w: number
-  h: number
-  status: 'queued' | 'running' | 'done' | 'error'
-  result?: DetectResult
-  error?: string
-  verdict: '正确' | '错误' | null
-  /** 有检出目标才算一条评分样本（GUI 规则：没检出目标不写行） */
-  counts: boolean
-  /** 距本轮计时起点的秒数（拍照模式按"按下快门那一刻"算） */
-  elapsed: number | null
-  source: InputMode | 'server'
-  snapshotUrl?: string | null
-  tAt?: number
-}
 
 const INPUTS: { id: InputMode; label: string; icon: string }[] = [
   { id: 'camera', label: '摄像头', icon: 'camera' },
@@ -60,33 +49,21 @@ const router = useRouter()
 const { state, zoneOf, refreshHistory } = useStation()
 const lan = ref<LanInfo | null>(null)
 
-/* ==================== 样本与计时（先声明，后面到处用） ==================== */
-const samples = ref<Sample[]>([])
-const currentId = ref<number | null>(null)
+/* ==================== 样本与计时：状态在 composables/evalSession（与评测子页共用） ==================== */
 const activeDet = ref<number | null>(null)
 const busy = ref(false)
-let seq = 0
 const pending: { s: Sample; blob: Blob }[] = []
-
-const counts = computed(() => samples.value.filter((s) => s.counts))
-const doneCount = computed(() => counts.value.length)
-
-const session = reactive({ start: 0, stop: 0, now: 0 })
-let ticker = 0
-const started = computed(() => session.start > 0)
-const running = computed(() => started.value && !session.stop)
-const elapsedSec = computed(() => {
-  if (!session.start) return 0
-  const end = session.stop || session.now || session.start
-  return Math.max(0, (end - session.start) / 1000)
-})
-const elapsed = computed(() => elapsedSec.value)
+const elapsed = elapsedSec
 
 /* ==================== 模式 / 输入方式 ==================== */
-const mode = computed<'eval' | 'free'>(() =>
-  (route.meta.mode === 'eval' || route.query.mode === 'eval') ? 'eval' : 'free')
+// 跳去别的页面时路由先变、组件后卸载：这段间隙要保持原模式，否则评分样本会被当成自由检测清掉
+let lastMode: 'eval' | 'free' = 'free'
+const mode = computed<'eval' | 'free'>(() => {
+  if (route.path !== '/' && route.path !== '/eval') return lastMode
+  lastMode = (route.meta.mode === 'eval' || route.query.mode === 'eval') ? 'eval' : 'free'
+  return lastMode
+})
 const input = ref<InputMode>('image')
-const reviewId = ref<number | null>(null)
 
 const reviewSample = computed(() => samples.value.find((s) => s.id === reviewId.value) || null)
 const current = computed(() => samples.value.find((s) => s.id === currentId.value) || null)
@@ -98,19 +75,37 @@ const stageSample = computed(() => {
 function switchMode(next: 'eval' | 'free') {
   if (next === mode.value) return
   if (samples.value.length && !window.confirm('切换模式会清空本轮样本，继续？')) return
+  pending.length = 0
+  activeDet.value = null
   resetSession()
   void router.replace(next === 'eval' ? '/eval' : '/')
 }
 watch(mode, (m) => {
+  enterMode(m)
   input.value = m === 'eval' ? 'camera' : 'image'
   reviewId.value = null
 }, { immediate: true })
 watch(input, () => { reviewId.value = null })
 
 const conf = ref(0.4)
-watch(() => state.config?.conf_default, (v) => { if (v) conf.value = v }, { immediate: true })
+// 评分作业默认优先出框（EVAL.conf_default），滑块随时可调
+watch([() => state.config, mode], ([c, m]) => {
+  const v = m === 'eval' ? (c?.eval_conf_default ?? c?.conf_default) : c?.conf_default
+  if (v) conf.value = v
+}, { immediate: true })
+// 滑块同时控制实时框：看到的和拍到的用同一门槛。喷淋/语音仍按配置门槛，不受影响。
+let liveConfTimer = 0
+watch([conf, input], ([c, i]) => {
+  if (i !== 'camera') return
+  window.clearTimeout(liveConfTimer)
+  liveConfTimer = window.setTimeout(() => { void api.evalLiveConf(c).catch(() => { /* 下次拖动再试 */ }) }, 150)
+}, { immediate: true })
 const target = computed(() => state.config?.eval_target || 20)
 const limit = computed(() => state.config?.eval_time_limit || 180)
+const full = computed(() => mode.value === 'eval' && doneCount.value >= target.value)
+const stripItems = computed(() => [...counts.value].reverse())
+const flyingId = ref<number | null>(null)
+const stripRef = ref<InstanceType<typeof SampleStrip> | null>(null)
 
 /* ==================== 采集 → 识别队列 ==================== */
 function readSize(url: string) {
@@ -122,13 +117,17 @@ function readSize(url: string) {
   })
 }
 
-async function capture(blob: Blob, name: string, source: Sample['source'], wh?: { w: number; h: number }) {
+async function capture(blob: Blob, name: string, source: SampleSource, wh?: { w: number; h: number }) {
+  if (mode.value === 'eval') {
+    await evalCapture(() => api.detect(blob, conf.value, name), name, source, blob)
+    return
+  }
   if (!session.start) { session.start = performance.now(); session.now = session.start }
   const url = URL.createObjectURL(blob)
   const size = wh || await readSize(url)
-  seq += 1
+  const id = nextSeq()
   const s: Sample = {
-    id: seq, no: String(seq).padStart(2, '0'), name,
+    id, no: String(id).padStart(2, '0'), name,
     url, w: size.w, h: size.h, status: 'queued',
     verdict: null, counts: false, elapsed: null, source,
     tAt: performance.now(),
@@ -137,6 +136,73 @@ async function capture(blob: Blob, name: string, source: Sample['source'], wh?: 
   if (currentId.value == null) currentId.value = s.id
   pending.push({ s, blob })
   void pump()
+}
+
+/**
+ * 评分作业：后端推理成功才入栏（未检出不显示、不占序号），之后带框图从画面飞到样本栏最左。
+ * 动画只在真实结果回来之后播放；计时从第一张落位开始，后面的照常继续拍，不用等动画。
+ */
+async function evalCapture(run: () => Promise<DetectResult>, name: string, source: SampleSource, blob?: Blob) {
+  if (session.stop || full.value) {
+    toast(full.value ? `已满 ${target.value} 张，点「去评测」继续` : '本轮已结束，点「新一轮」重新开始', 'warn')
+    return
+  }
+  busy.value = true
+  try {
+    const r = await run()
+    if (!r.success) throw new Error(r.error || '识别失败')
+    if (!r.detections.length) {
+      toast('这张没有检出目标，不计入样本。调整摆放或调低置信度后再拍', 'warn')
+      return
+    }
+    if (session.stop || full.value) return
+    const raw = r.raw_image ? b64ToObjectUrl(r.raw_image) : URL.createObjectURL(blob as Blob)
+    const size = r.image_size ? { w: r.image_size[0], h: r.image_size[1] } : await readSize(raw)
+    // 框和类别来自后端；缩略图、动画、快照按实时画面的样式画，视觉一致
+    const boxed = await renderBoxed(raw, r.detections)
+    if (session.stop || full.value) return
+    const id = nextSeq()
+    const first = !session.start
+    const s: Sample = {
+      id, no: String(doneCount.value + 1).padStart(2, '0'), name,
+      url: raw, boxedUrl: boxed || b64ToObjectUrl(r.result_image), w: size.w, h: size.h, status: 'done', result: r,
+      verdict: null, counts: true, source, tAt: performance.now(),
+      elapsed: first ? 0 : Math.max(0, (performance.now() - session.start) / 1000),
+    }
+    samples.value.push(s)
+    currentId.value = s.id
+    // 不在这里调大模型生成建议：逐张调用会和推理抢 CPU，拖慢 180 秒内的拍摄（结果已带知识库版）
+    void saveSnapshot(s)
+    setChatContext(r.detections, r.risk)
+    if (full.value && !first) finish()
+    void flyToStrip(s).then(() => {
+      if (first && samples.value.includes(s)) {
+        startTimer()
+        if (full.value) finish()
+      }
+    })
+  } catch (e) {
+    toast(`识别失败：${(e as Error).message}`, 'bad')
+  } finally {
+    busy.value = false
+  }
+}
+
+async function flyToStrip(s: Sample) {
+  const from = (document.querySelector('[data-fly-source] .frame') || document.querySelector('.stage-panel'))?.getBoundingClientRect()
+  flyingId.value = s.id
+  await nextTick()
+  stripRef.value?.toStart()
+  await flyImage(s.boxedUrl, from, stripRef.value?.thumbRect(s.id))
+  if (flyingId.value === s.id) flyingId.value = null
+}
+
+function goReview() {
+  if (!doneCount.value) return
+  if (doneCount.value < target.value
+    && !window.confirm(`只拍了 ${doneCount.value} 张（目标 ${target.value} 张），结束拍照去评测？`)) return
+  if (running.value) finish()
+  void router.push('/eval/review')
 }
 
 let pumping = false
@@ -194,7 +260,7 @@ async function saveSnapshot(s: Sample) {
   const img = s.result?.result_image
   if (!img) return
   try {
-    const r = await api.saveSnapshot(`data:image/jpeg;base64,${img}`)
+    const r = await api.saveSnapshot(s.boxedUrl?.startsWith('data:') ? s.boxedUrl : `data:image/jpeg;base64,${img}`)
     if (r.success && r.url) s.snapshotUrl = r.url
   } catch { /* 忽略 */ }
 }
@@ -206,10 +272,20 @@ async function redetect() {
     const blob = await (await fetch(s.url)).blob()
     s.status = 'running'
     const r = await api.detect(blob, conf.value, s.name)
+    if (mode.value === 'eval' && !r.detections.length) {
+      // 已经入栏的样本不能因为重测变成"未检出"：保留原结果，让它继续能判分
+      s.status = 'done'
+      toast('这个阈值下没有检出目标，保留原来的结果', 'warn')
+      return
+    }
     s.result = r
     s.status = 'done'
     s.counts = r.detections.length > 0
     s.elapsed = Math.max(0, (((s.tAt ?? performance.now()) - session.start) / 1000))
+    if (s.boxedUrl) {
+      if (!s.boxedUrl.startsWith('data:')) URL.revokeObjectURL(s.boxedUrl)
+      s.boxedUrl = (await renderBoxed(s.url, r.detections)) || b64ToObjectUrl(r.result_image)
+    }
     if (s.counts) void saveSnapshot(s)
     scheduleScore()
     toast(s.counts ? '重新识别完成' : '这个阈值下没有检出目标', s.counts ? 'ok' : 'warn')
@@ -220,74 +296,18 @@ async function redetect() {
   }
 }
 
-function finish() {
-  if (!session.start || session.stop) return
-  session.stop = performance.now()
-  session.now = session.stop
-  toast(`本轮结束：${doneCount.value} 张样本 · ${clock(elapsedSec.value)}`, 'ok')
-  void refreshScore()
-}
-
-function resetSession() {
-  samples.value.forEach((s) => URL.revokeObjectURL(s.url))
-  samples.value = []
+function newRound() {
   pending.length = 0
-  currentId.value = null
-  reviewId.value = null
   activeDet.value = null
-  seq = 0
-  session.start = session.stop = session.now = 0
-  score.value = null
+  flyingId.value = null
+  resetSession()
 }
-
-/* ==================== 评分（服务端口径，不自己算） ==================== */
-const score = ref<EvalScore | null>(null)
-const rubric = ref<Partial<EvalRubric> | null>(null)
-let scoreTimer = 0
-
-async function refreshScore() {
-  if (mode.value !== 'eval' || !doneCount.value) { score.value = null; return }
-  try {
-    const r = await api.evalScore(counts.value.map((s) => ({ verdict: s.verdict })), elapsedSec.value)
-    score.value = r.score
-    rubric.value = r.rubric
-  } catch { /* 离线/异常：保留上一次分数 */ }
-}
-function scheduleScore() {
-  window.clearTimeout(scoreTimer)
-  scoreTimer = window.setTimeout(refreshScore, 250)
-}
-watch(doneCount, scheduleScore)
-watch(() => counts.value.map((s) => s.verdict).join(','), scheduleScore)
 
 function setVerdict(v: '正确' | '错误') {
   const s = stageSample.value
   if (!s || !s.counts) { toast('先选一条有检出的样本，再判对错', 'warn'); return }
   s.verdict = s.verdict === v ? null : v
   scheduleScore()
-}
-
-async function exportReport() {
-  const recs = counts.value.map((s) => ({
-    no: s.no,
-    name: s.name,
-    time: timeOf(s.result?.timestamp),
-    detections: (s.result?.detections || []).map((d) => ({ chinese_name: d.chinese_name, confidence: d.confidence })),
-    consum: s.result?.inference_time ?? 0,
-    elapsed: s.elapsed ?? 0,
-    verdict: s.verdict,
-  }))
-  if (!recs.length) { toast('还没有可导出的样本', 'warn'); return }
-  try {
-    const r = await api.evalReport(recs, elapsedSec.value)
-    const a = document.createElement('a')
-    a.href = r.url
-    a.download = r.name
-    a.click()
-    toast(`报告已导出：${r.name}`, 'ok')
-  } catch (e) {
-    toast(`导出失败：${(e as Error).message}`, 'bad')
-  }
 }
 
 /* ==================== 图片 / 文件夹 / 粘贴 / 拖拽 ==================== */
@@ -298,7 +318,7 @@ const dragging = ref(false)
 async function addFiles(files: FileList | File[] | null | undefined, source: 'image' | 'folder') {
   const list = Array.from(files || []).filter((f) => f.type.startsWith('image/'))
   if (!list.length) { toast('请选择图片文件（JPG / PNG）', 'bad'); return }
-  for (const f of list) await capture(f, f.name || `样本 ${seq + 1}`, source)
+  for (const f of list) await capture(f, f.name || `样本 ${peekSeq() + 1}`, source)
 }
 function onPick(e: Event) {
   const el = e.target as HTMLInputElement
@@ -326,11 +346,11 @@ function onPaste(e: ClipboardEvent) {
 
 /* ==================== 摄像头 ==================== */
 function onCameraCapture(p: { blob: Blob; w: number; h: number }) {
-  if (mode.value === 'eval' && doneCount.value >= target.value) {
-    toast(`已满 ${target.value} 张：点「结束本轮」导出，或「新一轮」重来`, 'warn')
+  const n = doneCount.value + 1
+  if (mode.value === 'eval') {
+    void evalCapture(() => api.evalCapture(conf.value), `拍照 ${String(n).padStart(2, '0')}`, 'camera')
     return
   }
-  const n = doneCount.value + 1
   void capture(p.blob, `拍照 ${String(n).padStart(2, '0')}`, 'camera', { w: p.w, h: p.h })
 }
 
@@ -404,12 +424,12 @@ async function loadServerSamples() {
   try {
     const r = await api.evalSamples()
     if (!r.count) { toast(`样本目录是空的：${r.dir}`, 'bad'); return }
-    const names = r.samples.slice(0, target.value).map((s) => s.name)
-    for (const name of names) {
+    for (const { name } of r.samples) {
+      if (full.value) break
       const blob = await (await fetch(api.evalSampleUrl(name))).blob()
       await capture(blob, name, 'server')
     }
-    toast(`已载入 ${names.length} 张服务器样本`, 'ok')
+    toast(`已载入 ${doneCount.value} 张服务器样本`, 'ok')
   } catch (e) {
     toast(`载入失败：${(e as Error).message}`, 'bad')
   }
@@ -454,6 +474,7 @@ function onKey(e: KeyboardEvent) {
   const i = samples.value.findIndex((s) => s.id === (currentId.value ?? -1))
   if (e.key === 'ArrowRight' && i < samples.value.length - 1) currentId.value = samples.value[i + 1].id
   if (e.key === 'ArrowLeft' && i > 0) currentId.value = samples.value[i - 1].id
+  if (mode.value === 'eval') return      // 评分作业只在评测子页判分
   if (e.key === 'y' || e.key === 'Y') setVerdict('正确')
   if (e.key === 'n' || e.key === 'N') setVerdict('错误')
 }
@@ -461,18 +482,16 @@ function onKey(e: KeyboardEvent) {
 onMounted(async () => {
   document.addEventListener('paste', onPaste)
   document.addEventListener('keydown', onKey)
-  ticker = window.setInterval(() => {
-    if (session.start && !session.stop) { session.now = performance.now() }
-    if (running.value) scheduleScore()
-  }, 500)
   try { lan.value = await api.lan() } catch { /* 局域网信息读不到不影响检测 */ }
 })
 onBeforeUnmount(() => {
   document.removeEventListener('paste', onPaste)
   document.removeEventListener('keydown', onKey)
-  window.clearInterval(ticker)
   window.clearInterval(videoTimer)
-  window.clearTimeout(scoreTimer)
+  window.clearTimeout(liveConfTimer)
+  // 离开页面恢复默认门槛，别影响 /stream；自由检测的样本和以前一样离开就清空
+  void api.evalLiveConf(null).catch(() => { /* 服务已停 */ })
+  if (mode.value === 'free') resetSession()
   if (videoUrl.value) URL.revokeObjectURL(videoUrl.value)
 })
 </script>
@@ -513,15 +532,24 @@ onBeforeUnmount(() => {
         @dragleave.self="dragging = false"
         @drop.prevent="onDrop"
       >
+        <!-- 回看时只隐藏不卸载：卸载会断流、释放相机，返回时要等冷启动约 7 秒 -->
         <CameraCapture
-          v-if="input === 'camera' && !reviewSample"
+          v-if="input === 'camera'"
+          v-show="!reviewSample"
           :busy="busy"
           :count="doneCount"
           :target="target"
+          :full="full"
           @capture="onCameraCapture"
-        />
+        >
+          <template v-if="mode === 'eval'" #actions>
+            <button type="button" class="btn" :class="{ 'btn-primary': full }" :disabled="!doneCount" @click="goReview">
+              <Icon name="check" :size="16" />去评测
+            </button>
+          </template>
+        </CameraCapture>
 
-        <div v-else-if="input === 'video' && !reviewSample" class="video-box">
+        <div v-if="input === 'video' && !reviewSample" class="video-box">
           <div class="row">
             <button type="button" class="btn" @click="videoFile?.click()"><Icon name="folder" :size="16" />选择视频</button>
             <input ref="videoFile" type="file" accept="video/*" hidden @change="onVideoPick">
@@ -551,7 +579,7 @@ onBeforeUnmount(() => {
         </div>
 
         <DetectionStage
-          v-else
+          v-else-if="input !== 'camera' || reviewSample"
           v-model:active="activeDet"
           :src="stageSample?.url"
           :width="stageSample?.w"
@@ -575,9 +603,13 @@ onBeforeUnmount(() => {
         <div v-if="reviewSample" class="review-bar">
           <span class="mono">回看：样本 {{ reviewSample.no }} · {{ reviewSample.name }}</span>
           <button type="button" class="btn btn-sm" @click="reviewId = null"><Icon name="refresh" :size="14" />返回实时</button>
+          <button v-if="mode === 'eval'" type="button" class="btn btn-sm" :class="{ 'btn-primary': full }" :disabled="!doneCount" @click="goReview">
+            <Icon name="check" :size="14" />去评测
+          </button>
         </div>
 
-        <div v-if="stageSample?.counts" class="judge-row">
+        <!-- 评分作业的判分只在评测子页（/eval/review）做，这里只回看 -->
+        <div v-if="stageSample?.counts && mode !== 'eval'" class="judge-row">
           <span class="judge-t">判分 {{ stageSample.no }}</span>
           <button type="button" class="btn btn-sm" :class="{ 'btn-primary': stageSample.verdict === '正确' }" @click="setVerdict('正确')">
             <Icon name="check" :size="15" />正确
@@ -610,13 +642,21 @@ onBeforeUnmount(() => {
           <span class="num count">{{ doneCount }} <span class="of">/ {{ target }}</span></span>
           <span class="mono timing">用时 {{ clock(elapsed) }} · 限时 {{ clock(limit) }}</span>
           <button v-if="mode === 'eval'" type="button" class="btn btn-sm" @click="loadServerSamples">从服务器载入</button>
-          <button v-if="samples.length" type="button" class="btn btn-sm" @click="resetSession">新一轮</button>
+          <button v-if="samples.length" type="button" class="btn btn-sm" @click="newRound">新一轮</button>
         </div>
         <div class="progress" :title="`已完成 ${doneCount} / ${target}`">
           <div class="fill" :style="{ width: `${Math.min(100, (doneCount / target) * 100)}%` }" />
           <div v-if="session.start" class="mark" :class="{ over: elapsed > limit }" :style="{ left: `${Math.min(100, (elapsed / limit) * 100)}%` }" />
         </div>
-        <div v-if="samples.length" class="strip">
+        <SampleStrip
+          v-if="mode === 'eval' && stripItems.length"
+          ref="stripRef"
+          :items="stripItems"
+          :active-id="reviewId"
+          :hidden-id="flyingId"
+          @select="viewSample"
+        />
+        <div v-else-if="mode === 'free' && samples.length" class="strip">
           <button
             v-for="s in samples"
             :key="s.id"
@@ -640,8 +680,8 @@ onBeforeUnmount(() => {
           </button>
         </div>
         <p v-else class="empty">
-          还没有样本。{{ mode === 'eval' ? '把标本摆到镜头前，点「拍照并记录」开始计时，满 ' + target + ' 张停表。' : '拖图片进来或选择输入方式。' }}
-          ←/→ 切换样本，Y/N 判对错。
+          还没有样本。{{ mode === 'eval' ? '把标本摆到镜头前，看到框后点「拍照并记录」，第一张快照落位后开始计时，满 ' + target + ' 张停表。' : '拖图片进来或选择输入方式。' }}
+          <template v-if="mode === 'free'">←/→ 切换样本，Y/N 判对错。</template>
         </p>
       </div>
     </section>
@@ -659,7 +699,7 @@ onBeforeUnmount(() => {
         :rubric="rubric"
         @finish="finish"
         @export="exportReport"
-        @reset="resetSession"
+        @reset="newRound"
       />
 
       <div class="panel panel-pad">
@@ -760,7 +800,7 @@ onBeforeUnmount(() => {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; padding: 8px 12px;
   background: var(--inset); border-radius: var(--r); font-size: 13px;
 }
-.review-bar .btn { margin-left: auto; }
+.review-bar .btn:first-of-type { margin-left: auto; }
 .judge-row {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; padding: 10px 0 0;
   border-top: 1px solid var(--line);

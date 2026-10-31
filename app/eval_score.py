@@ -4,7 +4,8 @@
 口径（2026-10-11 与用户对齐，见 config/configs.yaml 的 EVAL 段注释）：
 
     准确度 20 分 = 正确样本数 × points_per_sample（20 个样本 × 1 分）
-    时效性 10 分 = time_full_score − max(0, 用时 − time_limit_sec) × overtime_penalty_per_sec
+    时效性 10 分 = 拍满 target 张才有：time_full_score − max(0, 用时 − time_limit_sec) × overtime_penalty_per_sec；
+                  没拍满得 0（2026-10-31 用户口径：识别环节 180 秒内**完成**才得这 10 分）
     总分   = 准确度 + 时效性（满分 30），扣分扣到 0 为止；未评判不计入正确。
 
 为什么单独一个模块：GUI（main.py）与 Web 测评页（api_server.py 的 /eval + /api/eval/*）
@@ -27,7 +28,8 @@ def compute_eval_score(records, elapsed, target=None, pps=None,
     """按现场评分口径算分。
 
     准确度 = min(正确数, target) × pps
-    时效性 = max(0, time_full − max(0, 用时 − limit) × penalty)   # 扣完为止
+    时效性 = 拍满 target 张：max(0, time_full − max(0, 用时 − limit) × penalty)   # 扣完为止
+             没拍满：0
     总分   = 准确度 + 时效性
 
     「未评判」不计入正确 —— 漏判只会少分，不会被误判成对。
@@ -49,7 +51,7 @@ def compute_eval_score(records, elapsed, target=None, pps=None,
     acc = min(correct, target) * pps
     elapsed = max(0.0, float(elapsed or 0.0))
     over = max(0.0, elapsed - limit)
-    time_score = max(0.0, time_full - over * penalty)
+    time_score = max(0.0, time_full - over * penalty) if total >= target else 0.0
 
     return {
         'total': total,

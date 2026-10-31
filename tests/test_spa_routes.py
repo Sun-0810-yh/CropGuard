@@ -41,7 +41,7 @@ def _routes():
 @test_case
 def test_spa_routes_cover_eval_and_mobile():
     from serve import spa
-    for p in ('/', '/stream', '/ask', '/spray', '/system', '/dashboard', '/eval', '/m'):
+    for p in ('/', '/stream', '/ask', '/spray', '/system', '/dashboard', '/eval', '/eval/review', '/m'):
         assert p in spa.ROUTES, f'{p} 不在 SPA 路由里（现有 {spa.ROUTES}）'
 
 
@@ -68,5 +68,6 @@ def test_frontend_router_has_eval_route():
     with open(os.path.join(ROOT, 'web', 'src', 'router.ts'), 'r', encoding='utf-8') as f:
         src = f.read()
     assert "path: '/eval'" in src, '前端路由缺 /eval'
+    assert "path: '/eval/review'" in src, '前端路由缺评测子页 /eval/review'
     assert "path: '/m'" in src, '前端路由缺 /m'
     assert "mode: 'eval'" in src, '评分模式要靠路由 meta 传给检测台'

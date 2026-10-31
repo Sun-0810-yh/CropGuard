@@ -24,6 +24,11 @@ export interface DetectResult {
   risk: Risk
   inference_time: number
   result_image: string
+  /** 只有 /api/eval/capture 返回：不带框的原图（大屏叠框、重新识别用） */
+  raw_image?: string
+  /** live = 实时流里已出框的帧；burst = 现场连拍 */
+  capture_source?: 'live' | 'burst'
+  image_size?: [number, number]
   timestamp: string
   advice?: string
   advice_source?: string
@@ -48,6 +53,7 @@ export interface ClientConfig {
   max_spray: number
   eval_target: number
   eval_time_limit: number
+  eval_conf_default?: number
   refuse_below: number
   risk_map: Record<string, { group: string | null; duration: number }>
 }
@@ -317,6 +323,13 @@ export const api = {
   saveSnapshot: (dataUrl: string) =>
     postJSON<{ success: boolean; name?: string; path?: string; url?: string; error?: string }>(
       '/api/eval/snapshot', { image: dataUrl }),
+
+  /** 拍照：后端优先用实时流里已出框的最好一帧，没有才现场连拍 */
+  evalCapture: (conf: number, cam: string | null = null) =>
+    postJSON<DetectResult>('/api/eval/capture', { conf, cam }),
+  /** 置信度滑块 → 实时出框门槛；null 恢复配置默认值。不影响喷淋/语音 */
+  evalLiveConf: (conf: number | null) =>
+    postJSON<{ success: boolean; conf: number }>('/api/eval/live_conf', { conf }),
 
   /* ---------------- 雾化（手写 sketch 节点） ---------------- */
   mistStatus: (group = 'all') => request<MistStatus>(`/api/mist/status?group=${encodeURIComponent(group)}`),
