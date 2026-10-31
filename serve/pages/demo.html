@@ -305,7 +305,7 @@
     const items = [
       ['服务', 'ok', '服务器在线'],
       ['模型', st.model && st.model.classes ? 'ok' : 'bad',
-        '模型 ' + (st.model ? st.model.classes : '?') + ' 类 · ' + (st.model ? st.model.device : '-')],
+        '模型 ' + (st.model ? st.model.classes : '?') + ' 类 · ' + (st.model ? 'cpu' : '-')],
       ['相机', (st.camera && st.camera.open) ? 'ok'
         : ((st.camera && st.camera.last_error) ? 'bad' : 'warn'),
         (st.camera && st.camera.open)

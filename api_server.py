@@ -56,6 +56,7 @@ from app.state import (
 from app.inference import (
     _predict_and_format, _with_advice, _linkage,
     _ensure_pump, _latest_result, _remember_sample,
+    capture_snapshot, set_live_conf,
     set_auto_spray as set_auto_spray_linkage,
     auto_spray_enabled as auto_spray_linkage_enabled,
 )
@@ -459,6 +460,7 @@ async def client_config(request: Request):
         "max_spray": int(cfg_spray.get('max_duration', 5) or 5),
         "eval_target": int(cfg_eval.get('target_samples', 20) or 20),
         "eval_time_limit": int(cfg_eval.get('time_limit_sec', 180) or 180),
+        "eval_conf_default": float(cfg_eval.get('conf_default', conf_thres) or conf_thres),
         "refuse_below": float((config.get('CHAT', {}) or {}).get('refuse_below', 0.18)),
         "risk_map": risk_map,
     }
@@ -801,6 +803,39 @@ def _eval_sample_dir():
 def _eval_report_dir():
     p = str(_rubric_from_config(config).get('report_dir') or './output/eval_reports')
     return p if os.path.isabs(p) else os.path.join(os.path.dirname(os.path.abspath(__file__)), p)
+
+
+@app.post("/api/eval/live_conf")
+def eval_live_conf(payload: dict = None):
+    """评分页置信度滑块 → 实时出框门槛；conf 传 null 恢复配置默认值。
+
+    只影响实时框显示和抓拍，喷淋/语音仍按配置门槛判断。
+    """
+    payload = payload or {}
+    try:
+        return {"success": True, "conf": set_live_conf(payload.get("conf"))}
+    except (TypeError, ValueError):
+        return JSONResponse(status_code=400, content={"success": False, "error": "conf 必须是数字"})
+
+
+@app.post("/api/eval/capture")
+def eval_capture(payload: dict = None):
+    """拍照：优先用实时流里已出框的最好一帧，没有才现场连拍。普通 def，跑在线程池。"""
+    payload = payload or {}
+    key = _camera_key(payload.get("cam"))
+    src = _CAM_SOURCES.get(key)
+    if src is None:
+        return JSONResponse(status_code=409, content={"success": False, "error": "相机还没打开，等实时画面出来再拍"})
+    try:
+        conf = payload.get("conf")
+        res = capture_snapshot(key, src, None if conf is None else float(conf))
+        if res is None:
+            return JSONResponse(status_code=409, content={"success": False, "error": "摄像头当前没有画面"})
+        _remember_sample(res)
+        return _with_advice(res)
+    except Exception as e:
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
 
 @app.get("/eval-classic", response_class=HTMLResponse)

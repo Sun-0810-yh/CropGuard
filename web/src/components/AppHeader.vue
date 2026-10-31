@@ -19,7 +19,7 @@ const NAV = [
 const model = computed(() => {
   if (state.online === false) return { tone: 'bad', text: '服务器未连接' }
   if (!state.health) return { tone: '', text: '连接中' }
-  return { tone: 'ok', text: `模型 ${state.health.classes} 类 · ${String(state.health.device).toUpperCase()}` }
+  return { tone: 'ok', text: `模型 ${state.health.classes} 类 · CPU` }
 })
 const spray = computed(() => {
   const s = state.spray

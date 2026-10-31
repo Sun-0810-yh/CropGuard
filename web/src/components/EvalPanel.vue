@@ -50,7 +50,7 @@ const fmt = (v: number | undefined | null) => (v == null ? '--' : v.toFixed(1))
     </div>
 
     <div class="timer" :class="{ over, idle: !started }">{{ timerText }}</div>
-    <div class="timer-cap">{{ running ? '倒计时' : started ? '本轮用时' : '按下第一次拍照开始计时' }}</div>
+    <div class="timer-cap">{{ running ? '倒计时' : started ? '本轮用时' : '第一张快照落位后开始计时' }}</div>
 
     <div class="rows">
       <div class="r"><span>样本</span><b class="mono">{{ counted }} <em>/ {{ target }}</em></b></div>

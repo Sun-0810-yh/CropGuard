@@ -19,7 +19,7 @@ ASSETS = os.path.join(DIST, 'assets')
 #    评分并进检测台的「评分作业」模式；手机端重写后与站点同一套视觉。
 #    原生页仍保留，但改挂 /eval-classic、/m-classic 作为兜底（前端出问题时的后路）。
 #    /dashboard-offline 依然是原生单文件快照，不在这里。
-ROUTES = ('/', '/stream', '/ask', '/spray', '/system', '/dashboard', '/eval', '/m')
+ROUTES = ('/', '/stream', '/ask', '/spray', '/system', '/dashboard', '/eval', '/eval/review', '/m')
 
 _MISSING = """<!doctype html><meta charset="utf-8"><title>株得CropGuard</title>
 <body style="font:15px/1.7 system-ui,'Microsoft YaHei',sans-serif;max-width:640px;margin:48px auto;padding:0 16px">

@@ -49,7 +49,7 @@
 | --- | --- |
 | 系统 | Windows 10/11（现场演示机）；Ubuntu 20.04+ 也可运行 |
 | Python | 本机实测 **3.14**（`D:\Dev Env\Python\python.exe`）或 conda `pest-gpu` 环境；**带 torch / opencv / fastapi** |
-| 显卡 | 可选。有 NVIDIA 用 GPU；没有就 CPU（启动时自动回退，也可 `CG_DEVICE=cpu`） |
+| 显卡 | 现场推理固定用 GPU 环境 `D:\Dev Env\Python\torch\venv`（RTX 3060），双击脚本直接用它，不做 CPU 备选 |
 
 ```powershell
 py -3.14 -c "import torch, cv2, fastapi; print('ok')"    # 先确认解释器可用
@@ -88,7 +88,7 @@ pip install -r requirements.txt                          # 连桌面 GUI 一起�
 **C. 命令行**
 
 ```powershell
-$env:CG_DEVICE='cpu'; py -3.14 api_server.py     # 服务（HTTP 8080 + HTTPS 8443）
+& "D:\Dev Env\Python\torch\venv\Scripts\python.exe" -B api_server.py     # 服务（HTTP 8080 + HTTPS 8443）
 py -3.14 api_server.py --no-https                # 只跑 HTTP（手机只能用拍照模式）
 py -3.14 main.py                                 # 桌面 GUI（与服务器二选一，别同时占相机）
 ```
@@ -142,7 +142,7 @@ py -3.14 main.py                                 # 桌面 GUI（与服务器二�
 
 ### ① 20 个实体样本 · 180 秒（计分）
 
-打开 `/eval` → 摄像头画面 → 标本摆好 → 点「**拍照并记录（n/20）**」→ 评委判 ✓/✗ → 满 20 张自动停表 → 「导出 CSV」。
+打开 `/eval` → 摄像头画面 → 标本摆好 → 看到框后点「**拍照并记录（n/20）**」→ 带框快照飞入样本栏（第一张落位后开始计时，未检出不入栏）→ 满 20 张自动停表 → 「**去评测**」进 `/eval/review` → 图片逐张飞上大屏，评委判正确/错误后下一张直接叠放上来（判定后不可更改，可随时回看） → 「导出 CSV」。置信度滑块同时控制实时框和拍照，不影响喷淋/语音。
 细节见[第 5 节](#5-评分系统20-样本--180-秒)。
 
 ### ② 定点监控 → 自动喷洒

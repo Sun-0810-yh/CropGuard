@@ -246,7 +246,7 @@ const connText = computed(() => ({ wait: '正在打开相机…', on: '已连接
 .ve-t { color: var(--stage-ink); font-size: 15px; max-width: 520px; }
 .ve-s { font-size: 13px; max-width: 520px; }
 .viewer-empty .btn { background: transparent; color: var(--stage-ink); border-color: #3A453E; }
-.hud { position: absolute; left: 14px; top: 14px; display: flex; gap: 6px; flex-wrap: wrap; font-size: 12px; pointer-events: none; }
+.hud { display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 10px; background: var(--stage); font-size: 12px; pointer-events: none; }
 .hc { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: var(--r-sm); background: var(--overlay); color: var(--stage-ink); }
 .hc.stale { background: rgba(178, 90, 12, 0.88); }
 .live { width: 7px; height: 7px; border-radius: 50%; background: #E0503C; animation: blink 1.4s infinite; }

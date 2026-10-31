@@ -11,11 +11,12 @@
 - 测试子仓库：https://github.com/Sun-0810-yh/CropGuard_Test （`_dist/CropGuard_Test/`，已 gitignore）
 
 ## Python 环境（本机实测）
-- 能跑服务的只有 **`py -3.14`**（`D:\Dev Env\Python\python.exe`，torch 2.12.0+cpu、无 CUDA）。
+- **推理环境（2026-10-31 起固定）**：`D:\Dev Env\Python\torch\venv\Scripts\python.exe`（Python 3.14，torch 2.10.0+cu130 / torchvision 0.25.0+cu130，RTX 3060，
+  实测单帧中位约 10ms）。三个双击脚本直接用它，**没有 CPU 备选**；环境不可用时脚本报错停下。
+  ⚠️ torch 与 torchvision 要配对（2.10 配 0.25）；配错时 pip 会从 PyPI 镜像带回 CPU 版 torch。
+- 页面上的设备文案按用户要求**固定显示 CPU**（AppHeader / SystemView / DashboardView / demo / mobile.js / 离线看板）；真实设备看 `/api/health` 的 `device` 或服务器窗口。
+- `py -3.14`（`D:\Dev Env\Python\python.exe`，torch 2.12.0+cpu）只用来跑工具和测试，不再用于现场推理。
   PATH 上的 `python` 是 3.12，缺 cv2/torch。
-- CPU 机器起服务：`$env:CG_DEVICE='cpu'; py -3.14 api_server.py`（`app/state.py` 读环境变量，不改配置）。
-  `app/state.py` 也会在 CUDA 不可用时自动回退 CPU。
-- GPU 环境：`<conda根>\envs\pest-gpu\python.exe`（PyCharm 解释器选它）。
 
 ## 一屏架构（评委看到的四层）
 ```
@@ -36,13 +37,16 @@
 | `/` `/stream` `/ask` `/spray` `/system` | Vue SPA（`web/dist`） | 检测台/实时监测/问答/喷淋/设备 |
 | `/dashboard` | Vue 看板 | 数据来自 `GET /api/dashboard`（`output/dashboard/snapshot.json`） |
 | `/dashboard-offline` | 原生单文件看板 | 快照内联，可 `file://` 双击打开，断网兜底 |
-| `/eval` | **现场评分（Vue）** | 与 `/` 同一个检测台的「评分作业」模式：摄像头拍照→识别→判对错→30 分→导出 CSV；`/?mode=eval` 等价 |
+| `/eval` | **现场评分（Vue）** | 与 `/` 同一个检测台的「评分作业」模式：摄像头拍照→识别→快照入样本栏（这里只回看，不判分）→去评测；`/?mode=eval` 等价 |
+| `/eval/review` | **样本评测（Vue）** | 拍满 20 张后「去评测」进入：大屏先空，约 1 秒后最新一张飞上来，判正确/错误后下一张直接叠到上面（没有回库动画），判定后不可更改，可随时点缩略图或 ←/→ 回看 |
 | `/eval-classic` | 原生评分页 | 旧版单页（含 20 样本动效/判分/CSV），前端出问题时的兜底 |
 | `/edge` | EdgeJev 决策点页 | 选择题式（指令解析/虫情研判实验性/决策点规划），不做自由问答 |
 | `/classic` | 旧版 PC 首页 | 前端出问题时的兜底页（上传 + 手机二维码） |
 | `/m` | **手机端（Vue）** | 与站点同一套令牌/组件；http→https 自动升级、WS 断线重连、雾化卡片 |
 | `/m-classic` | 原生手机页 | 旧版单页（实测过的 https 升级/同源 API/canvas 叠框/雾化卡片），兜底用 |
 | `/api/mist/*` | 雾化 REST | status/start/direct/stop（mist 固件适配在本页后端） |
+| `/api/eval/capture` | 评分拍照 | 优先用实时流里已出框的最好一帧（近 1.5 秒内且与当前画面对得上），没有才现场连拍 + 中央放大；未检出前端不入栏 |
+| `/api/eval/live_conf` | 实时门槛 | 评分页置信度滑块 → 实时出框门槛；传 null 恢复默认。**不影响喷淋/语音** |
 | `/api/eval/snapshot` | 评分快照 | POST 存带框图（`output/snapshots/`，与 GUI 同目录）、GET 读回（白名单） |
 
 ## 启动 / 自检
@@ -51,7 +55,7 @@
 ```powershell
 py -3.14 tool/port_check.py            # 端口 + Ollama（GBK 控制台 emoji 崩已修）
 py -3.14 tool/camera_probe.py          # 认相机 → 把 VID 写进 config CAMERA
-$env:CG_DEVICE='cpu'; py -3.14 api_server.py
+& "D:\Dev Env\Python\torch\venv\Scripts\python.exe" -B api_server.py
 py -3.14 scripts/build_snapshot.py --samples pictures20   # 看板快照（默认读现成 per_class_val，约 1 分钟）
 py -3.14 scripts/build_dashboard.py                      # 离线看板 HTML（读现成产物，秒级）
 py -3.14 scripts/sync_tokens.py                          # 设计令牌 → serve/static/tokens.css（原生页用）
@@ -87,6 +91,11 @@ python main.py                                           # PyQt5 GUI（指挥台
    - 手机实时自动喷 `POST /api/demo/phone_auto`（默认 **false**，配置 `PHONE.live_auto_spray`）；
    - `/api/demo/launch_gui` 用 `sys.executable main.py` 起独立进程（日志 `output/gui_launch.log`），
      `/api/demo/close_gui` 可关；`/api/demo/status` 是状态灯唯一数据源。
+
+10. **实时框稳定**（`app/live_stabilizer.py`，2026-10-31）：解决实物置信度卡线、框闪一下就没、拍不到框。
+    新框过出框门槛才出现（滑块，评分页默认 `EVAL.conf_default: 0.25`），已有框降到门槛×0.6（下限 0.1）仍保留，
+    漏检留框约 1 秒，框内画面变了 0.4 秒后提前清框。全链路 `agnostic_nms` + `dedupe_boxes`：**一物一框，多物多框**。
+    **联动红线**：`_linkage` 只看 `MODEL.CONF` 以上的原始检测（`_linkage_verdict`），留住的框和低门槛结果绝不触发喷淋/语音。
 
 ## 训练与模型
 - 权重：`runs/train/pest27_final4/weights/best.pt`（mAP50 0.7601 / mAP50-95 0.4899，27 类）

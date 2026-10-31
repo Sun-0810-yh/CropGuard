@@ -3,7 +3,7 @@
 
 口径（2026-10-11 与用户对齐）：
     准确度 20 分 = 正确样本数 × points_per_sample（20 × 1）
-    时效性 10 分 = 10 − max(0, 用时 − 180) × 0.5，扣完为止
+    时效性 10 分 = 拍满 20 张才有：10 − max(0, 用时 − 180) × 0.5，扣完为止；没拍满得 0
     总分   = 准确度 + 时效性（满分 30）
 
 这些数字会被评委现场核对，所以把边界全钉死。
@@ -43,12 +43,15 @@ def _recs(n_correct, n_wrong=0, n_unjudged=0):
 
 
 # ==================== 时效性 ====================
+FULL = [{'verdict': None}] * 20      # 拍满 20 张、还没评判
+
+
 @test_case
 def test_time_score_full_within_limit():
     """≤180s 得满分（边界 180 也算满分）。"""
     m = _mod()
     for elapsed in (0.0, 60.0, 179.9, 180.0):
-        s = m.compute_eval_score([], elapsed)
+        s = m.compute_eval_score(FULL, elapsed)
         assert s['time_score'] == 10.0, (elapsed, s)
         assert s['over'] == 0.0, (elapsed, s)
 
@@ -59,7 +62,7 @@ def test_time_score_penalty_per_second():
     m = _mod()
     cases = {180.5: 9.8, 181: 9.5, 182: 9.0, 190: 5.0, 200: 0.0}
     for elapsed, expect in cases.items():
-        s = m.compute_eval_score([], elapsed)
+        s = m.compute_eval_score(FULL, elapsed)
         assert abs(s['time_score'] - expect) < 1e-6, (elapsed, s['time_score'], expect)
 
 
@@ -68,7 +71,7 @@ def test_time_score_floors_at_zero():
     """扣完为止：超时再多也不出现负分。"""
     m = _mod()
     for elapsed in (200.0, 210.0, 600.0, 9999.0):
-        s = m.compute_eval_score([], elapsed)
+        s = m.compute_eval_score(FULL, elapsed)
         assert s['time_score'] == 0.0, (elapsed, s)
         assert s['score'] >= 0.0, s
 
@@ -133,11 +136,29 @@ def test_wrong_does_not_add_score():
 # ==================== 组合与边界 ====================
 @test_case
 def test_zero_samples():
-    """一个样本都没有时不该崩，得分只算时效（场景：刚开始就停表）。"""
+    """一个样本都没有时不该崩，也没有时效分（场景：刚开始就停表）。"""
     m = _mod()
     s = m.compute_eval_score([], 0.0)
     assert s['total'] == 0 and s['acc'] == 0.0, s
-    assert s['time_score'] == 10.0 and s['score'] == 10.0, s
+    assert s['time_score'] == 0.0 and s['score'] == 0.0, s
+
+
+@test_case
+def test_time_score_needs_all_samples():
+    """识别环节拍满 20 张才有时效分：19 张得 0，20 张在 180 秒内得 10。"""
+    m = _mod()
+    assert m.compute_eval_score(_recs(19), 100.0)['time_score'] == 0.0
+    s = m.compute_eval_score(_recs(13, 7), 100.0)
+    assert s['time_score'] == 10.0 and s['acc'] == 13.0 and s['score'] == 23.0, s
+
+
+@test_case
+def test_wrong_does_not_change_score():
+    """正确一张 1 分；错误和未评判都不加也不减。"""
+    m = _mod()
+    a = m.compute_eval_score(_recs(5, 0, 15), 100.0)
+    b = m.compute_eval_score(_recs(5, 15), 100.0)
+    assert a['score'] == b['score'] == 15.0, (a, b)
 
 
 @test_case
@@ -152,9 +173,9 @@ def test_worst_case_is_zero():
 def test_score_is_rounded_to_one_decimal():
     """得分保留 1 位小数（面板与报告展示口径一致）。"""
     m = _mod()
-    s = m.compute_eval_score(_recs(3), 181.0)     # 3 + 9.5 = 12.5
+    s = m.compute_eval_score(_recs(3, 0, 17), 181.0)     # 3 + 9.5 = 12.5
     assert s['score'] == 12.5, s
-    s2 = m.compute_eval_score(_recs(3), 185.0)    # 3 + 7.5 = 10.5
+    s2 = m.compute_eval_score(_recs(3, 0, 17), 185.0)    # 3 + 7.5 = 10.5
     assert s2['score'] == 10.5, s2
 
 

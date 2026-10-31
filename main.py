@@ -153,7 +153,7 @@ def compute_eval_score(records, elapsed, target=None, pps=None,
     把 config 的 EVAL 段作为默认值传入。
 
     准确度 = min(正确数, target) × pps
-    时效性 = max(0, time_full − max(0, 用时 − limit) × penalty)   # 扣完为止
+    时效性 = 拍满 target 张：max(0, time_full − max(0, 用时 − limit) × penalty)   # 扣完为止；没拍满得 0
     总分   = 准确度 + 时效性
 
     「未评判」不计入正确 —— 漏判只会少分，不会被误判成对。

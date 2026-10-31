@@ -744,7 +744,7 @@ async function refreshHistory() {
   try {
     const r = await fetch(API_BASE + '/api/health');
     const data = await r.json();
-    setStatus(true, '已连接 · ' + (data.device || '') + ' · ' + (data.classes || 0) + ' 类');
+    setStatus(true, '已连接 · cpu · ' + (data.classes || 0) + ' 类');
   } catch (e) {
     setStatus(false, IS_HTTPS
       ? 'HTTPS 接口不可达（证书可能没被信任，或服务未启动）'

@@ -8,23 +8,17 @@ echo    株得CropGuard - 演示系统
 echo ============================================
 echo.
 
-REM 1) 找 Python（优先 py -3.14，其次 python）
-set "PY=py -3.14"
-py -3.14 -c "import torch, cv2, fastapi" >nul 2>nul
+REM 1) 推理环境固定为这一个（GPU 版），不做备选
+set "PY_EXE=D:\Dev Env\Python\torch\venv\Scripts\python.exe"
+set "CG_DEVICE="
+"%PY_EXE%" -c "import torch, cv2, fastapi, ultralytics; raise SystemExit(0 if torch.cuda.is_available() else 1)" >nul 2>nul
 if errorlevel 1 (
-  set "PY=python"
-  python -c "import torch, cv2, fastapi" >nul 2>nul
-  if errorlevel 1 (
-    echo [错误] 找不到能用的 Python（需要 torch / cv2 / fastapi）。
-    echo        在 PyCharm 里选 pest-gpu 解释器，或把 python.exe 加到 PATH。
-    pause
-    exit /b 1
-  )
+  echo [错误] 推理环境不可用：%PY_EXE%
+  echo        确认环境存在、显卡驱动正常后再试。
+  pause
+  exit /b 1
 )
-
-REM 2) 有 NVIDIA 显卡就用 GPU；没有就强制 CPU（不改配置文件）
-nvidia-smi >nul 2>nul
-if errorlevel 1 set "CG_DEVICE=cpu"
+set PY="%PY_EXE%"
 
 REM 3) Ollama 在不在（问答要用；不在只提示，不阻塞演示）
 powershell -NoProfile -Command "try{Invoke-WebRequest -UseBasicParsing -TimeoutSec 1 http://127.0.0.1:11434/ | Out-Null; exit 0}catch{exit 1}" >nul 2>nul
